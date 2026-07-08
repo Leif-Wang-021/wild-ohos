@@ -1,4 +1,5 @@
-import 'dart:io';
+﻿import 'dart:io';
+import 'package:wild/utils/app_platform.dart';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -37,7 +38,7 @@ class _InitPageState extends State<InitPage> {
     }
     await init(root: root);
 
-    // 初始化所有 Cubit
+    // 鍒濆鍖栨墍鏈?Cubit
     final fontSizeCubit = context.read<FontSizeCubit>();
     final paragraphSpacingCubit = context.read<ParagraphSpacingCubit>();
     final lineHeightCubit = context.read<LineHeightCubit>();
@@ -49,7 +50,7 @@ class _InitPageState extends State<InitPage> {
     final readerBackgroundCubit = context.read<ReaderBackgroundCubit>();
     final volumeControlCubit = context.read<VolumeControlCubit>();
 
-    // 等待所有 Cubit 初始化完成
+    // 绛夊緟鎵€鏈?Cubit 鍒濆鍖栧畬鎴?
     await Future.wait([
       fontSizeCubit.loadFontSize(),
       paragraphSpacingCubit.loadSpacing(),
@@ -64,10 +65,10 @@ class _InitPageState extends State<InitPage> {
     ]);
 
     if (authCubit.state.status == AuthStatus.authenticated) {
-      // 如果已经登录，跳转到首页
+      // 濡傛灉宸茬粡鐧诲綍锛岃烦杞埌棣栭〉
       Navigator.pushReplacementNamed(context, '/home');
     } else {
-      // 如果未登录，跳转到登录页
+      // 濡傛灉鏈櫥褰曪紝璺宠浆鍒扮櫥褰曢〉
       Navigator.pushReplacementNamed(context, '/login');
     }
   }
@@ -117,7 +118,7 @@ class _InitPageState extends State<InitPage> {
                     ),
                   ),
                 ),
-                // 加载指示器
+                // 鍔犺浇鎸囩ず鍣?
                 Positioned(
                   left: 0,
                   right: 0,
@@ -138,3 +139,7 @@ class _InitPageState extends State<InitPage> {
     );
   }
 }
+
+
+
+

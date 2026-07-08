@@ -1,4 +1,7 @@
-use crate::database::entities::active::{chapter_cache, image_cache, novel_download, novel_download_chapter, novel_download_picture, web_cache};
+use crate::database::entities::active::{
+    chapter_cache, image_cache, novel_download, novel_download_chapter, novel_download_picture,
+    web_cache,
+};
 use crate::database::entities::WebCacheEntity;
 use crate::{get_image_cache_dir, CLIENT, DOWNLOAD_FOLDER, IMAGE_LOCKS};
 use chrono::Utc;
@@ -9,6 +12,8 @@ use std::path::Path;
 use std::pin::Pin;
 use std::time::Duration;
 use tokio::fs as async_fs;
+
+const CHAPTER_CACHE_MARKER: &str = "<!--wild-chapter-cache-v2-->";
 
 pub async fn cleanup_image_cache() -> crate::Result<()> {
     let image_cache_dir = get_image_cache_dir();
@@ -46,7 +51,7 @@ pub async fn get_cached_image(img_url: String) -> crate::Result<String> {
         if a.cover_download_status == 1 {
             let novel_dir = Path::new(DOWNLOAD_FOLDER.get().unwrap()).join(&a.novel_id);
             let picture_file_path = novel_dir.join("cover");
-            let path = picture_file_path.to_str().unwrap().to_string(); 
+            let path = picture_file_path.to_str().unwrap().to_string();
             return Ok(path);
         }
     }
@@ -113,8 +118,11 @@ pub(crate) async fn get_chapter_content(aid: &str, cid: &str) -> anyhow::Result<
 
     // 先尝试从缓存获取（跳过无效的缓存内容）
     if let Some(cache) = chapter_cache::Entity::get_chapter_content(aid, cid).await? {
-        if !cache.content.trim().is_empty() && cache.content.trim() != "0" {
-            return Ok(cache.content);
+        if cache.content.starts_with(CHAPTER_CACHE_MARKER) {
+            let content = cache.content[CHAPTER_CACHE_MARKER.len()..].to_string();
+            if !content.trim().is_empty() && content.trim() != "0" {
+                return Ok(content);
+            }
         }
     }
 
@@ -122,8 +130,12 @@ pub(crate) async fn get_chapter_content(aid: &str, cid: &str) -> anyhow::Result<
     let content = CLIENT.c_content(aid, cid).await?;
 
     // 保存到缓存
-    chapter_cache::Entity::save_chapter_content(aid.to_string(), cid.to_string(), content.clone())
-        .await?;
+    chapter_cache::Entity::save_chapter_content(
+        aid.to_string(),
+        cid.to_string(),
+        format!("{CHAPTER_CACHE_MARKER}{content}"),
+    )
+    .await?;
 
     Ok(content)
 }

@@ -3,6 +3,7 @@
 
 import 'dart:async';
 import 'dart:io';
+import 'package:wild/utils/app_platform.dart';
 
 import 'package:event/event.dart';
 import 'package:flutter/material.dart';
@@ -25,7 +26,7 @@ class ReaderControllerEventArgs extends EventArgs {
 
 Widget readerKeyboardHolder(Widget widget) {
   if (keyboardController &&
-      (Platform.isWindows || Platform.isMacOS || Platform.isLinux)) {
+      (Platform.isWindows || Platform.isMacOS || Platform.isLinux || AppPlatform.isOHOS)) {
     widget = RawKeyboardListener(
       focusNode: FocusNode(),
       child: widget,

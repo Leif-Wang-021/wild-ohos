@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:wild/utils/app_platform.dart';
 
 import 'package:flutter/material.dart';
 import '../src/rust/api/database.dart';
@@ -19,7 +20,7 @@ Future initScreenUpOnScroll() async {
 }
 
 Widget screenUpOnScrollSetting() {
-  if (Platform.isAndroid || Platform.isIOS) {
+  if (Platform.isAndroid || Platform.isIOS || AppPlatform.isOHOS) {
     return StatefulBuilder(
       builder: (BuildContext context, void Function(void Function()) setState) {
         return SwitchListTile(

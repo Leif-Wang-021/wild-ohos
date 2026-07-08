@@ -9,6 +9,7 @@ import 'package:wild/cubits/screen_keep_on.dart';
 import 'package:wild/cubits/volume_control_cubit.dart';
 import 'package:wild/utils/controller_event.dart';
 import 'dart:io';
+import 'package:wild/utils/app_platform.dart';
 
 import '../../src/rust/wenku8/models.dart';
 import 'font_size_cubit.dart';
@@ -61,19 +62,20 @@ class ReaderPage extends StatelessWidget {
         BlocProvider.value(value: rightPaddingCubit),
         BlocProvider.value(value: readerTypeCubit),
         BlocProvider(
-          create: (context) => ReaderCubit(
-            novelInfo: novelInfo,
-            initialAid: aid,
-            initialCid: cid,
-            initialVolumes: volumes,
-            fontSizeCubit: fontSizeCubit,
-            paragraphSpacingCubit: paragraphSpacingCubit,
-            lineHeightCubit: lineHeightCubit,
-            topBarHeightCubit: topBarHeightCubit,
-            bottomBarHeightCubit: bottomBarHeightCubit,
-            leftPaddingCubit: leftPaddingCubit,
-            rightPaddingCubit: rightPaddingCubit,
-          )..loadChapter(initialPage: initialPage),
+          create:
+              (context) => ReaderCubit(
+                novelInfo: novelInfo,
+                initialAid: aid,
+                initialCid: cid,
+                initialVolumes: volumes,
+                fontSizeCubit: fontSizeCubit,
+                paragraphSpacingCubit: paragraphSpacingCubit,
+                lineHeightCubit: lineHeightCubit,
+                topBarHeightCubit: topBarHeightCubit,
+                bottomBarHeightCubit: bottomBarHeightCubit,
+                leftPaddingCubit: leftPaddingCubit,
+                rightPaddingCubit: rightPaddingCubit,
+              )..loadChapter(initialPage: initialPage),
         ),
       ],
       child: BlocBuilder<ReaderCubit, ReaderState>(
@@ -135,9 +137,9 @@ class _ReaderViewState extends State<_ReaderView> {
       initialPage: widget.state.currentPageIndex,
     );
     setKeepScreenUpOnReading(true);
-    
+
     // 监听音量键事件
-    if (Platform.isAndroid || Platform.isIOS) {
+    if (Platform.isAndroid || Platform.isIOS || AppPlatform.isOHOS) {
       final volumeControlCubit = context.read<VolumeControlCubit>();
       if (volumeControlCubit.isEnabled) {
         addVolumeListen();
@@ -157,7 +159,7 @@ class _ReaderViewState extends State<_ReaderView> {
       delVolumeListen();
       readerControllerEvent.unsubscribe(_onController);
     }
-    
+
     super.dispose();
   }
 
@@ -328,11 +330,15 @@ class _ReaderViewState extends State<_ReaderView> {
           builder: (context, backgroundState) {
             String? backgroundImagePath;
             if (isDarkMode && backgroundState.darkBackgroundExists) {
-              backgroundImagePath = context.read<ReaderBackgroundCubit>().getDarkBackgroundPath();
+              backgroundImagePath =
+                  context.read<ReaderBackgroundCubit>().getDarkBackgroundPath();
             } else if (!isDarkMode && backgroundState.lightBackgroundExists) {
-              backgroundImagePath = context.read<ReaderBackgroundCubit>().getLightBackgroundPath();
+              backgroundImagePath =
+                  context
+                      .read<ReaderBackgroundCubit>()
+                      .getLightBackgroundPath();
             }
-            
+
             return Scaffold(
               backgroundColor: backgroundColor,
               body: Stack(
@@ -343,91 +349,98 @@ class _ReaderViewState extends State<_ReaderView> {
                       child: Image.file(
                         File(backgroundImagePath),
                         fit: BoxFit.cover,
-                        opacity: AlwaysStoppedAnimation(backgroundState.opacity),
+                        opacity: AlwaysStoppedAnimation(
+                          backgroundState.opacity,
+                        ),
                       ),
                     ),
-              // 阅读内容
-              Positioned.fill(
-                child: GestureDetector(
-                  onTapDown: _handleTap,
-                  child: PageView.builder(
-                    controller: _pageController,
-                    itemCount: widget.state.pages.length,
-                    onPageChanged: (index) {
-                      context.read<ReaderCubit>().onPageChanged(index);
-                    },
-                    itemBuilder: (context, index) {
-                      final page = widget.state.pages[index];
-                      if (page.isImage) {
-                        return _ImagePage(
-                          imageUrl: page.content,
-                          textColor: textColor,
-                          pageNumber: widget.state.currentPageIndex + 1,
-                          pageCount: widget.state.pages.length,
-                        );
-                      }
-                      return _TextPage(
-                        content: page.content,
-                        textColor: textColor,
-                        pageNumber: widget.state.currentPageIndex + 1,
-                        pageCount: widget.state.pages.length,
-                      );
-                    },
-                  ),
-                ),
-              ),
-              // 控制栏
-              if (state.showControls) ...[
-                // 顶部栏
-                Positioned(
-                  top: 0,
-                  left: 0,
-                  right: 0,
-                  child: Container(
-                    color: Colors.black.withOpacity(0.7),
-                    padding: EdgeInsets.fromLTRB(16, topPadding + 8, 16, 16),
-                    child: Row(
-                      children: [
-                        IconButton(
-                          icon: const Icon(
-                            Icons.arrow_back,
-                            color: Colors.white,
-                          ),
-                          onPressed: () => Navigator.pop(context),
-                        ),
-                        Expanded(
-                          child: Text(
-                            widget.title,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 18,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                        IconButton(
-                          icon: const Icon(
-                            Icons.menu_book,
-                            color: Colors.white,
-                          ),
-                          onPressed: _showChapterList,
-                        ),
-                        IconButton(
-                          icon: const Icon(
-                            Icons.settings,
-                            color: Colors.white,
-                          ),
-                          onPressed: _showSettings,
-                        ),
-                      ],
+                  // 阅读内容
+                  Positioned.fill(
+                    child: GestureDetector(
+                      onTapDown: _handleTap,
+                      child: PageView.builder(
+                        controller: _pageController,
+                        itemCount: widget.state.pages.length,
+                        onPageChanged: (index) {
+                          context.read<ReaderCubit>().onPageChanged(index);
+                        },
+                        itemBuilder: (context, index) {
+                          final page = widget.state.pages[index];
+                          if (page.isImage) {
+                            return _ImagePage(
+                              imageUrl: page.content,
+                              textColor: textColor,
+                              pageNumber: widget.state.currentPageIndex + 1,
+                              pageCount: widget.state.pages.length,
+                            );
+                          }
+                          return _TextPage(
+                            content: page.content,
+                            textColor: textColor,
+                            pageNumber: widget.state.currentPageIndex + 1,
+                            pageCount: widget.state.pages.length,
+                          );
+                        },
+                      ),
                     ),
                   ),
-                ),
-              ],
-            ],
-          ),
-        );
+                  // 控制栏
+                  if (state.showControls) ...[
+                    // 顶部栏
+                    Positioned(
+                      top: 0,
+                      left: 0,
+                      right: 0,
+                      child: Container(
+                        color: Colors.black.withOpacity(0.7),
+                        padding: EdgeInsets.fromLTRB(
+                          16,
+                          topPadding + 8,
+                          16,
+                          16,
+                        ),
+                        child: Row(
+                          children: [
+                            IconButton(
+                              icon: const Icon(
+                                Icons.arrow_back,
+                                color: Colors.white,
+                              ),
+                              onPressed: () => Navigator.pop(context),
+                            ),
+                            Expanded(
+                              child: Text(
+                                widget.title,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 18,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            IconButton(
+                              icon: const Icon(
+                                Icons.menu_book,
+                                color: Colors.white,
+                              ),
+                              onPressed: _showChapterList,
+                            ),
+                            IconButton(
+                              icon: const Icon(
+                                Icons.settings,
+                                color: Colors.white,
+                              ),
+                              onPressed: _showSettings,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            );
           },
         );
       },
@@ -477,26 +490,16 @@ class _TextPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final screenWidth =
-        MediaQueryData.fromView(WidgetsBinding.instance.window).size.width;
-    final screenHeight =
-        MediaQueryData.fromView(WidgetsBinding.instance.window).size.height;
-    final topPadding =
-        MediaQueryData.fromView(WidgetsBinding.instance.window).padding.top;
-    final bottomPadding =
-        MediaQueryData.fromView(WidgetsBinding.instance.window).padding.bottom;
+    final mediaQuery = MediaQuery.of(context);
+    final screenWidth = mediaQuery.size.width;
+    final topPadding = mediaQuery.padding.top;
+    final bottomPadding = mediaQuery.padding.bottom;
     final topBarHeight = context.read<TopBarHeightCubit>().state;
     final bottomBarHeight = context.read<BottomBarHeightCubit>().state;
     final leftPadding = context.read<LeftPaddingCubit>().state;
     final rightPadding = context.read<RightPaddingCubit>().state;
     final leftAndRightPadding = leftPadding + rightPadding;
     final canvasWidth = screenWidth - leftAndRightPadding;
-    final canvasHeight =
-        screenHeight -
-        topPadding -
-        bottomPadding -
-        topBarHeight -
-        bottomBarHeight;
 
     return BlocBuilder<FontSizeCubit, double>(
       builder: (context, fontSize) {
@@ -505,43 +508,71 @@ class _TextPage extends StatelessWidget {
             return BlocBuilder<LineHeightCubit, double>(
               builder: (context, lineHeight) {
                 var texts = content.split("\n");
-                return Column(
-                  children: [
-                    Container(height: topPadding),
-                    Container(height: topBarHeight),
-                    for (var i = 0; i < texts.length; i++) ...[
-                      SizedBox(
-                        width: canvasWidth,
-                        child: Text.rich(
-                          strutStyle: StrutStyle(height: lineHeight),
-                          TextSpan(
-                            text: texts[i],
-                            style: TextStyle(
-                              fontSize: fontSize,
-                              height: lineHeight,
-                              letterSpacing: 0.5,
-                              color: textColor,
+                return SizedBox.expand(
+                  child: Padding(
+                    padding: EdgeInsets.fromLTRB(
+                      leftPadding,
+                      topPadding + topBarHeight,
+                      rightPadding,
+                      bottomPadding + bottomBarHeight,
+                    ),
+                    child: Stack(
+                      children: [
+                        Positioned.fill(
+                          bottom: 24,
+                          child: ClipRect(
+                            child: SingleChildScrollView(
+                              physics: const NeverScrollableScrollPhysics(),
+                              padding: EdgeInsets.zero,
+                              child: Column(
+                                children: [
+                                  for (var i = 0; i < texts.length; i++) ...[
+                                    SizedBox(
+                                      width: canvasWidth,
+                                      child: Text.rich(
+                                        strutStyle: StrutStyle(
+                                          height: lineHeight,
+                                        ),
+                                        TextSpan(
+                                          text: texts[i],
+                                          style: TextStyle(
+                                            fontSize: fontSize,
+                                            height: lineHeight,
+                                            letterSpacing: 0.5,
+                                            color: textColor,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                    if (i < texts.length - 1)
+                                      SizedBox(height: spacing),
+                                  ],
+                                ],
+                              ),
                             ),
                           ),
                         ),
-                      ),
-                      if (i < texts.length - 1) Container(height: spacing),
-                    ],
-                    Expanded(child: Container()),
-                    SizedBox(
-                      child: Align(
-                        alignment: Alignment.bottomCenter,
-                        child: Opacity(
-                          opacity: 0.3,
-                          child: Text(
-                            '$pageNumber/$pageCount',
-                            style: TextStyle(fontSize: 10, color: textColor),
+                        Positioned(
+                          left: 0,
+                          right: 0,
+                          bottom: 0,
+                          child: Align(
+                            alignment: Alignment.bottomCenter,
+                            child: Opacity(
+                              opacity: 0.3,
+                              child: Text(
+                                '$pageNumber/$pageCount',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  color: textColor,
+                                ),
+                              ),
+                            ),
                           ),
                         ),
-                      ),
+                      ],
                     ),
-                    Container(height: bottomPadding),
-                  ],
+                  ),
                 );
               },
             );
@@ -606,9 +637,7 @@ class _ImagePage extends StatelessWidget {
                   return Container(
                     width: screenWidth - leftAndRightPadding,
                     color: Colors.grey[200],
-                    child: const Center(
-                      child: CircularProgressIndicator(),
-                    ),
+                    child: const Center(child: CircularProgressIndicator()),
                   );
                 },
                 errorBuilder: (context, error, stackTrace) {
@@ -978,7 +1007,7 @@ class _ReaderSettingsState extends State<_ReaderSettings> {
                           value: spacing,
                           min: 2,
                           max: 32,
-                          divisions: 2,
+                          divisions: 15,
                           label: spacing.round().toString(),
                           onChanged: (value) async {
                             await paragraphSpacingCubit.updateSpacing(value);
@@ -1291,7 +1320,10 @@ class _ReaderSettingsState extends State<_ReaderSettings> {
                           },
                         ),
                       ),
-                      Text('${(backgroundState.opacity * 100).round()}%', style: TextStyle()),
+                      Text(
+                        '${(backgroundState.opacity * 100).round()}%',
+                        style: TextStyle(),
+                      ),
                     ],
                   );
                 },
@@ -1312,14 +1344,19 @@ class _ReaderSettingsState extends State<_ReaderSettings> {
                         children: [
                           Expanded(
                             child: OutlinedButton.icon(
-                              icon: Icon(backgroundState.lightBackgroundExists 
-                                  ? Icons.image 
-                                  : Icons.add_photo_alternate),
-                              label: Text(backgroundState.lightBackgroundExists 
-                                  ? '更新浅色背景' 
-                                  : '设置浅色背景'),
+                              icon: Icon(
+                                backgroundState.lightBackgroundExists
+                                    ? Icons.image
+                                    : Icons.add_photo_alternate,
+                              ),
+                              label: Text(
+                                backgroundState.lightBackgroundExists
+                                    ? '更新浅色背景'
+                                    : '设置浅色背景',
+                              ),
                               onPressed: () async {
-                                await readerBackgroundCubit.updateLightBackground();
+                                await readerBackgroundCubit
+                                    .updateLightBackground();
                                 await widget.readerCubit.reloadCurrentPage();
                               },
                             ),
@@ -1330,7 +1367,8 @@ class _ReaderSettingsState extends State<_ReaderSettings> {
                               icon: const Icon(Icons.delete),
                               label: const Text('删除'),
                               onPressed: () async {
-                                await readerBackgroundCubit.deleteLightBackground();
+                                await readerBackgroundCubit
+                                    .deleteLightBackground();
                                 await widget.readerCubit.reloadCurrentPage();
                               },
                             ),
@@ -1341,14 +1379,19 @@ class _ReaderSettingsState extends State<_ReaderSettings> {
                         children: [
                           Expanded(
                             child: OutlinedButton.icon(
-                              icon: Icon(backgroundState.darkBackgroundExists 
-                                  ? Icons.image 
-                                  : Icons.add_photo_alternate),
-                              label: Text(backgroundState.darkBackgroundExists 
-                                  ? '更新深色背景' 
-                                  : '设置深色背景'),
+                              icon: Icon(
+                                backgroundState.darkBackgroundExists
+                                    ? Icons.image
+                                    : Icons.add_photo_alternate,
+                              ),
+                              label: Text(
+                                backgroundState.darkBackgroundExists
+                                    ? '更新深色背景'
+                                    : '设置深色背景',
+                              ),
                               onPressed: () async {
-                                await readerBackgroundCubit.updateDarkBackground();
+                                await readerBackgroundCubit
+                                    .updateDarkBackground();
                                 await widget.readerCubit.reloadCurrentPage();
                               },
                             ),
@@ -1359,7 +1402,8 @@ class _ReaderSettingsState extends State<_ReaderSettings> {
                               icon: const Icon(Icons.delete),
                               label: const Text('删除'),
                               onPressed: () async {
-                                await readerBackgroundCubit.deleteDarkBackground();
+                                await readerBackgroundCubit
+                                    .deleteDarkBackground();
                                 await widget.readerCubit.reloadCurrentPage();
                               },
                             ),
@@ -1374,10 +1418,28 @@ class _ReaderSettingsState extends State<_ReaderSettings> {
               TextButton(
                 onPressed: () async {
                   await context.read<ThemeCubit>().resetToDefault();
-                  await topBarHeightCubit.updateHeight(56);
-                  await bottomBarHeightCubit.updateHeight(56);
-                  await leftPaddingCubit.updatePadding(16);
-                  await rightPaddingCubit.updatePadding(16);
+                  await fontSizeCubit.updateFontSize(
+                    FontSizeCubit.defaultFontSize,
+                  );
+                  await paragraphSpacingCubit.updateSpacing(
+                    ParagraphSpacingCubit.defaultSpacing,
+                  );
+                  await lineHeightCubit.updateLineHeight(
+                    LineHeightCubit.defaultLineHeight,
+                  );
+                  await topBarHeightCubit.updateHeight(
+                    TopBarHeightCubit.defaultHeight,
+                  );
+                  await bottomBarHeightCubit.updateHeight(
+                    BottomBarHeightCubit.defaultHeight,
+                  );
+                  await leftPaddingCubit.updatePadding(
+                    LeftPaddingCubit.defaultPadding,
+                  );
+                  await rightPaddingCubit.updatePadding(
+                    RightPaddingCubit.defaultPadding,
+                  );
+                  await readerBackgroundCubit.resetToDefault();
                   await widget.readerCubit.reloadCurrentPage();
                 },
                 child: const Text('重置为默认'),

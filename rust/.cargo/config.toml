@@ -1,0 +1,5 @@
+﻿[target.aarch64-unknown-linux-ohos]
+linker = "D:\\ohos-cc\\aarch64-unknown-linux-ohos-clang.cmd"
+
+[target.x86_64-unknown-linux-ohos]
+linker = "D:\\ohos-cc\\x86_64-unknown-linux-ohos-clang.cmd"

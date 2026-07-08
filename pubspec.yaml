@@ -47,7 +47,18 @@ dependencies:
   url_launcher: ^6.3.1
   image_picker: ^1.2.0
   event: ^3.1.0
-  webview_flutter: ^4.10.0
+  webview_flutter:
+    path: third_party/flutter_packages/packages/webview_flutter/webview_flutter
+
+dependency_overrides:
+  webview_flutter_android:
+    path: third_party/flutter_packages/packages/webview_flutter/webview_flutter_android
+  webview_flutter_ohos:
+    path: third_party/flutter_packages/packages/webview_flutter/webview_flutter_ohos
+  webview_flutter_platform_interface:
+    path: third_party/flutter_packages/packages/webview_flutter/webview_flutter_platform_interface
+  webview_flutter_wkwebview:
+    path: third_party/flutter_packages/packages/webview_flutter/webview_flutter_wkwebview
 
 dev_dependencies:
   flutter_test:

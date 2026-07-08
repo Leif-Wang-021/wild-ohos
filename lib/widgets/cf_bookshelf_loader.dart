@@ -1,16 +1,26 @@
+import 'dart:async';
 import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:wild/src/rust/api/wenku8.dart' show getSessionCookieString;
 import 'package:wild/src/rust/wenku8/models.dart';
+import 'package:wild/utils/app_platform.dart';
 
-/// 長駐背景的 WebView 書架載入器。
-/// 透過 GlobalKey<CfBookshelfLoaderState> 呼叫 reload() 觸發載入。
-/// WebView 永久存活，CF clearance 一次建立後可重複使用。
 class CfBookshelfLoader extends StatefulWidget {
+  static bool get isOhosFallback => AppPlatform.isOHOS;
+
   final String apiHost;
-  final void Function(List<Bookcase> bookcases, Map<String, BookcaseDto> contents)? onPartialData;
-  final void Function(List<Bookcase> bookcases, Map<String, BookcaseDto> contents) onSuccess;
+  final void Function(
+    List<Bookcase> bookcases,
+    Map<String, BookcaseDto> contents,
+  )?
+  onPartialData;
+  final void Function(
+    List<Bookcase> bookcases,
+    Map<String, BookcaseDto> contents,
+  )
+  onSuccess;
   final void Function(String error) onError;
 
   const CfBookshelfLoader({
@@ -28,12 +38,12 @@ class CfBookshelfLoader extends StatefulWidget {
 class CfBookshelfLoaderState extends State<CfBookshelfLoader> {
   late final WebViewController _controller;
 
-  // CF clearance 狀態 —— 跨 reload() 保留
   bool _homeLoaded = false;
   bool _cookiesInjected = false;
-
-  // 每次 reload() 重置的狀態
   bool _active = false;
+  int _notReadyCount = 0;
+  Timer? _timeout;
+
   List<Bookcase> _bookcases = [];
   final Map<String, BookcaseDto> _contents = {};
 
@@ -78,7 +88,8 @@ class CfBookshelfLoaderState extends State<CfBookshelfLoader> {
       });
     } catch(e) {}
   });
-  var tipMatch = (document.body ? document.body.innerHTML : '').match(/您的书架可收藏 \d+ 本，已收藏 \d+ 本/);
+  var body = document.body ? document.body.innerText : '';
+  var tipMatch = body.match(/书架可收藏\s*\d+\s*本[^，,]*[，,]\s*已收藏\s*\d+\s*本/);
   return JSON.stringify({items: items, tip: tipMatch ? tipMatch[0] : ''});
 })()
 ''';
@@ -86,98 +97,115 @@ class CfBookshelfLoaderState extends State<CfBookshelfLoader> {
   @override
   void initState() {
     super.initState();
-    _controller = WebViewController()
-      ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..setNavigationDelegate(NavigationDelegate(
-        onPageFinished: _onPageFinished,
-        onWebResourceError: (err) {
-          if (_active) widget.onError('WebView 載入失敗: ${err.description}');
-        },
-      ));
-    // 預熱：靜默載入首頁，提前取得 CF clearance
+    _log('init, preloading ${widget.apiHost}/');
+    _controller =
+        WebViewController()
+          ..setJavaScriptMode(JavaScriptMode.unrestricted)
+          ..setNavigationDelegate(
+            NavigationDelegate(
+              onPageFinished: _onPageFinished,
+              onWebResourceError: (err) {
+                _log('resource error: ${err.description}');
+                if (_active) _fail('WebView 加载失败: ${err.description}');
+              },
+            ),
+          );
     _controller.loadRequest(Uri.parse('${widget.apiHost}/'));
   }
 
-  /// 觸發（重新）載入書架資料
   void reload() {
+    _log('reload requested, homeLoaded=$_homeLoaded');
+    if (_active) {
+      _log('reload ignored because a bookshelf fallback is already active');
+      return;
+    }
     _active = true;
+    _notReadyCount = 0;
     _bookcases = [];
     _contents.clear();
+    _startTimeout();
 
     if (_homeLoaded) {
-      // 已有 CF clearance → 直接跳到書架頁
-      _navigateToBookcase();
-    } else {
-      // 還沒完成首頁預熱 → 等 _onPageFinished 處理
+      unawaited(_navigateToBookcase());
     }
   }
 
   Future<void> _navigateToBookcase() async {
+    _log('navigate to bookcase, cookiesInjected=$_cookiesInjected');
     if (!_cookiesInjected) {
       await _injectCookies();
     }
-    await _controller.loadRequest(Uri.parse(
-      '${widget.apiHost}/modules/article/bookcase.php',
-    ));
+    await _controller.loadRequest(
+      Uri.parse('${widget.apiHost}/modules/article/bookcase.php'),
+    );
   }
 
   Future<void> _injectCookies() async {
     try {
       final cookieStr = await getSessionCookieString();
+      _log('inject cookies, length=${cookieStr.length}');
       if (cookieStr.isNotEmpty) {
         for (final part in cookieStr.split('; ')) {
           final eq = part.indexOf('=');
-          if (eq > 0) {
-            final name = part.substring(0, eq);
-            final value = part.substring(eq + 1);
-            await _controller.runJavaScript(
-              'document.cookie = "${name}=${value}; path=/; domain=.wenku8.net";',
-            );
-          }
+          if (eq <= 0) continue;
+          final name = part.substring(0, eq);
+          final value = part.substring(eq + 1);
+          final assignment = jsonEncode(
+            '$name=$value; path=/; domain=.wenku8.net',
+          );
+          await _controller.runJavaScript('document.cookie = $assignment;');
         }
       }
       _cookiesInjected = true;
-    } catch (_) {}
+    } catch (e) {
+      _log('inject cookies failed: $e');
+    }
   }
 
   Future<void> _onPageFinished(String url) async {
+    _log('page finished: $url active=$_active homeLoaded=$_homeLoaded');
     await Future.delayed(const Duration(milliseconds: 1200));
 
     if (!_homeLoaded) {
-      // 首頁預熱階段
       final blocked = await _controller.runJavaScriptReturningResult(
         'document.title.toLowerCase().includes("blocked") || '
         '(document.body ? document.body.innerText.includes("Sorry, you have been blocked") : false) '
         '? "yes" : "no"',
       );
       if (blocked.toString().contains('yes')) {
-        if (_active) widget.onError('IP 被 Cloudflare 封鎖，請嘗試更換網路或使用 VPN');
-        _active = false;
+        if (_active) _fail('IP 被 Cloudflare 封锁，请更换网络或稍后重试');
         return;
       }
+
       final isCfChallenge = await _controller.runJavaScriptReturningResult(
         'document.getElementById("challenge-form") !== null ? "yes" : "no"',
       );
-      if (isCfChallenge.toString().contains('yes')) return; // 等挑戰完成
+      if (isCfChallenge.toString().contains('yes')) {
+        _log('cloudflare challenge detected, waiting');
+        return;
+      }
 
       _homeLoaded = true;
-
+      _log('home preload ready');
       if (_active) {
-        // reload() 已呼叫，繼續載入書架
         await _navigateToBookcase();
       }
-      // 否則只是預熱完成，靜默等待
       return;
     }
 
-    // 書架頁階段（_active 才處理）
     if (!_active) return;
 
     final check = await _controller.runJavaScriptReturningResult(
       'document.querySelector(\'select[name="classlist"]\') ? "ready" : "not_ready"',
     );
     if (check.toString().contains('not_ready')) {
-      // 可能被重定向到登入頁或其他頁 → cookies 可能過期，重注入
+      _notReadyCount++;
+      final info = await _pageInfo();
+      _log('bookcase DOM not ready #$_notReadyCount: $info');
+      if (_notReadyCount >= 3 || info.contains('login.php')) {
+        _fail('书架页面未就绪，可能登录态未同步或被站点拦截: $info');
+        return;
+      }
       _cookiesInjected = false;
       await _navigateToBookcase();
       return;
@@ -192,24 +220,33 @@ class CfBookshelfLoaderState extends State<CfBookshelfLoader> {
 
   Future<void> _loadBookcaseList() async {
     try {
-      final raw = await _controller.runJavaScriptReturningResult(_jsGetBookcases);
+      final raw = await _controller.runJavaScriptReturningResult(
+        _jsGetBookcases,
+      );
       final json = _stripJsonString(raw.toString());
       final list = jsonDecode(json) as List;
-      _bookcases = list.map((e) => Bookcase(id: e['id'], title: e['title'])).toList();
+      _bookcases =
+          list
+              .map((e) => Bookcase(id: e['id'] ?? '', title: e['title'] ?? ''))
+              .where((e) => e.id.isNotEmpty)
+              .toList();
+      _log('bookcase count=${_bookcases.length}');
       if (_bookcases.isEmpty) {
-        _active = false;
-        widget.onSuccess([], {});
+        final info = await _pageInfo();
+        _fail('未解析到书架分类，保留现有书架数据: $info');
         return;
       }
       await _extractBooksAndContinue(_bookcases[0].id);
     } catch (e) {
-      if (_active) widget.onError('解析書架分類失敗: $e');
+      if (_active) _fail('解析书架分类失败: $e');
     }
   }
 
   Future<void> _loadCurrentCaseBooks(String url) async {
     final caseId = Uri.tryParse(url)?.queryParameters['classid'];
-    if (caseId != null) await _extractBooksAndContinue(caseId);
+    if (caseId != null) {
+      await _extractBooksAndContinue(caseId);
+    }
   }
 
   Future<void> _extractBooksAndContinue(String caseId) async {
@@ -217,34 +254,62 @@ class CfBookshelfLoaderState extends State<CfBookshelfLoader> {
       final raw = await _controller.runJavaScriptReturningResult(_jsGetBooks);
       final json = _stripJsonString(raw.toString());
       final data = jsonDecode(json) as Map;
-      final items = (data['items'] as List).map((e) => BookcaseItem(
-        aid: e['aid'] ?? '',
-        bid: e['bid'] ?? '',
-        title: e['title'] ?? '',
-        author: e['author'] ?? '',
-        cid: e['cid'] ?? '',
-        chapterName: e['chapterName'] ?? '',
-      )).toList();
+      final items =
+          (data['items'] as List)
+              .map(
+                (e) => BookcaseItem(
+                  aid: e['aid'] ?? '',
+                  bid: e['bid'] ?? '',
+                  title: e['title'] ?? '',
+                  author: e['author'] ?? '',
+                  cid: e['cid'] ?? '',
+                  chapterName: e['chapterName'] ?? '',
+                ),
+              )
+              .toList();
       _contents[caseId] = BookcaseDto(items: items, tip: data['tip'] ?? '');
+      _log('case $caseId items=${items.length}');
 
-      // 每個分類載好就即時回呼
       widget.onPartialData?.call(List.from(_bookcases), Map.from(_contents));
 
-      final pending = _bookcases
-          .map((b) => b.id)
-          .where((id) => id != _bookcases[0].id && !_contents.containsKey(id))
-          .toList();
+      final pending =
+          _bookcases
+              .map((b) => b.id)
+              .where(
+                (id) => id != _bookcases[0].id && !_contents.containsKey(id),
+              )
+              .toList();
 
       if (pending.isEmpty) {
-        _active = false;
+        _finish();
         widget.onSuccess(List.from(_bookcases), Map.from(_contents));
       } else {
-        await _controller.loadRequest(Uri.parse(
-          '${widget.apiHost}/modules/article/bookcase.php?classid=${pending.first}',
-        ));
+        await _controller.loadRequest(
+          Uri.parse(
+            '${widget.apiHost}/modules/article/bookcase.php?classid=${pending.first}',
+          ),
+        );
       }
     } catch (e) {
-      if (_active) widget.onError('解析書本列表失敗: $e');
+      if (_active) _fail('解析书本列表失败: $e');
+    }
+  }
+
+  Future<String> _pageInfo() async {
+    try {
+      final raw = await _controller.runJavaScriptReturningResult(r'''
+(function() {
+  var text = document.body ? document.body.innerText : '';
+  return JSON.stringify({
+    href: location.href,
+    title: document.title,
+    text: text.replace(/\s+/g, ' ').slice(0, 180)
+  });
+})()
+''');
+      return _stripJsonString(raw.toString());
+    } catch (e) {
+      return 'pageInfoError=$e';
     }
   }
 
@@ -253,9 +318,42 @@ class CfBookshelfLoaderState extends State<CfBookshelfLoader> {
     return s;
   }
 
+  void _startTimeout() {
+    _timeout?.cancel();
+    _timeout = Timer(const Duration(seconds: 30), () {
+      if (_active) {
+        _fail('书架加载超时，请重新登录或稍后重试');
+      }
+    });
+  }
+
+  void _finish() {
+    _timeout?.cancel();
+    _active = false;
+    _notReadyCount = 0;
+    _log('finished');
+  }
+
+  void _fail(String message) {
+    _timeout?.cancel();
+    _active = false;
+    _notReadyCount = 0;
+    _log('failed: $message');
+    widget.onError(message);
+  }
+
+  void _log(String message) {
+    debugPrint('[CfBookshelf] $message');
+  }
+
+  @override
+  void dispose() {
+    _timeout?.cancel();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
-    // 永遠在 widget tree 中，但只佔 1×1px
     return WebViewWidget(controller: _controller);
   }
 }

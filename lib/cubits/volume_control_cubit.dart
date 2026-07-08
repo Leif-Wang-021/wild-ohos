@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:wild/utils/app_platform.dart';
 
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:wild/src/rust/api/database.dart';
@@ -9,7 +10,7 @@ class VolumeControlCubit extends Cubit<bool> {
   static const String _key = "_volumeControlProperty";
 
   Future<void> init() async {
-    if (!Platform.isAndroid && !Platform.isIOS) {
+    if (!Platform.isAndroid && !Platform.isIOS && !AppPlatform.isOHOS) {
       emit(false);
       return;
     }

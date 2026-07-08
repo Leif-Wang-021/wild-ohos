@@ -99,7 +99,7 @@ class ReaderCubit extends Cubit<ReaderState> {
 
       // 计算从第一页到当前页的累计字数
       final characterCount = _calculateCharacterCountUpToPage(pages, pageIndex);
-      
+
       // 更新阅读历史
       await updateHistory(
         novelId: targetAid,
@@ -132,10 +132,9 @@ class ReaderCubit extends Cubit<ReaderState> {
 
   Future reloadCurrentPage() async {
     try {
-      var currentPageIndex =
-          super.state is ReaderLoaded
-              ? (super.state as ReaderLoaded).currentPageIndex
-              : 0;
+      var currentPageIndex = super.state is ReaderLoaded
+          ? (super.state as ReaderLoaded).currentPageIndex
+          : 0;
       // emit(ReaderLoading());
 
       final targetAid = initialAid;
@@ -182,10 +181,13 @@ class ReaderCubit extends Cubit<ReaderState> {
     if (state is ReaderLoaded) {
       final currentState = state as ReaderLoaded;
       emit(currentState.copyWith(currentPageIndex: index));
-      
+
       // 计算从第一页到当前页的累计字数
-      final characterCount = _calculateCharacterCountUpToPage(currentState.pages, index);
-      
+      final characterCount = _calculateCharacterCountUpToPage(
+        currentState.pages,
+        index,
+      );
+
       // 更新阅读历史中的页码
       updateHistory(
         novelId: currentState.aid,
@@ -213,7 +215,8 @@ class ReaderCubit extends Cubit<ReaderState> {
     if (currentChapterIndex > 0) {
       // 同一卷的上一章
       volume = initialVolumes[currentVolumeIndex];
-      chapter = initialVolumes[currentVolumeIndex].chapters[currentChapterIndex - 1];
+      chapter =
+          initialVolumes[currentVolumeIndex].chapters[currentChapterIndex - 1];
       await loadChapter(aid: chapter.aid, cid: chapter.cid, initialPage: 0);
     } else if (currentVolumeIndex > 0) {
       // 上一卷的最后一章
@@ -234,10 +237,12 @@ class ReaderCubit extends Cubit<ReaderState> {
 
     Volume volume;
     Chapter chapter;
-    if (currentChapterIndex < initialVolumes[currentVolumeIndex].chapters.length - 1) {
+    if (currentChapterIndex <
+        initialVolumes[currentVolumeIndex].chapters.length - 1) {
       // 同一卷的下一章
       volume = initialVolumes[currentVolumeIndex];
-      chapter = initialVolumes[currentVolumeIndex].chapters[currentChapterIndex + 1];
+      chapter =
+          initialVolumes[currentVolumeIndex].chapters[currentChapterIndex + 1];
       await loadChapter(aid: chapter.aid, cid: chapter.cid, initialPage: 0);
     } else if (currentVolumeIndex < initialVolumes.length - 1) {
       // 下一卷的第一章
@@ -315,14 +320,18 @@ class ReaderCubit extends Cubit<ReaderState> {
   ) {
     final pages = <ReaderPage>[];
     final paragraphs = content.split('\n');
-    final screenWidth =
-        MediaQueryData.fromView(WidgetsBinding.instance.window).size.width;
-    final screenHeight =
-        MediaQueryData.fromView(WidgetsBinding.instance.window).size.height;
-    final topPadding =
-        MediaQueryData.fromView(WidgetsBinding.instance.window).padding.top;
-    final bottomPadding =
-        MediaQueryData.fromView(WidgetsBinding.instance.window).padding.bottom;
+    final screenWidth = MediaQueryData.fromView(
+      WidgetsBinding.instance.window,
+    ).size.width;
+    final screenHeight = MediaQueryData.fromView(
+      WidgetsBinding.instance.window,
+    ).size.height;
+    final topPadding = MediaQueryData.fromView(
+      WidgetsBinding.instance.window,
+    ).padding.top;
+    final bottomPadding = MediaQueryData.fromView(
+      WidgetsBinding.instance.window,
+    ).padding.bottom;
     final topBarHeight = topBarHeightCubit.state;
     final bottomBarHeight = bottomBarHeightCubit.state;
     final leftPadding = leftPaddingCubit.state;
@@ -334,7 +343,8 @@ class ReaderCubit extends Cubit<ReaderState> {
         topPadding -
         bottomPadding -
         topBarHeight -
-        bottomBarHeight;
+        bottomBarHeight -
+        32;
 
     var currentPage = StringBuffer();
     var pageFreeHeight = canvasHeight;
@@ -357,10 +367,9 @@ class ReaderCubit extends Cubit<ReaderState> {
 
         if (textHeight > pageFreeHeight) {
           // 当前段落超出页面高度，分割段落
-          var splitIndex =
-              textPainter
-                  .getPositionForOffset(Offset(0, pageFreeHeight))
-                  .offset;
+          var splitIndex = textPainter
+              .getPositionForOffset(Offset(0, pageFreeHeight))
+              .offset;
           var splitParagraph = paragraph.substring(0, splitIndex);
           currentPage.write(splitParagraph);
           pages.add(
@@ -391,26 +400,29 @@ class ReaderCubit extends Cubit<ReaderState> {
       pages.add(ReaderPage(content: imageUrl, isImage: true));
     }
 
+    final imageRegex = RegExp(r'<!--image-->([^<]+)<!--image-->');
     for (var paragraph in paragraphs) {
-      RegExp regex = RegExp("\<\!\-\-image\-\-\>([^\<]+)\<\!\-\-image\-\-\>");
-      if (regex.hasMatch(paragraph)) {
-        while (regex.hasMatch(paragraph)) {
-          var match = regex.firstMatch(paragraph)!;
-          if (match.start > 0) {
-            var per = paragraph.substring(0, match.start).trim();
-            if (per.isNotEmpty) {
-              putParagraph(per);
-            }
-            putImage(match.group(1)!);
-            paragraph = paragraph.substring(match.end);
-          }
+      var remaining = paragraph;
+      while (true) {
+        final match = imageRegex.firstMatch(remaining);
+        if (match == null) break;
+
+        final beforeImage = remaining.substring(0, match.start).trim();
+        if (beforeImage.isNotEmpty) {
+          putParagraph(beforeImage);
         }
-        paragraph = paragraph.trim();
-        if (paragraph.isNotEmpty) {
-          putParagraph(paragraph);
+
+        final imageUrl = match.group(1)?.trim();
+        if (imageUrl != null && imageUrl.isNotEmpty) {
+          putImage(imageUrl);
         }
-      } else {
-        putParagraph(paragraph);
+
+        remaining = remaining.substring(match.end);
+      }
+
+      final tail = remaining.trim();
+      if (tail.isNotEmpty) {
+        putParagraph(tail);
       }
     }
 

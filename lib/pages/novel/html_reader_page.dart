@@ -22,6 +22,7 @@ import 'package:wild/cubits/volume_control_cubit.dart';
 import 'package:wild/utils/controller_event.dart';
 import 'dart:async';
 import 'dart:io';
+import 'package:wild/utils/app_platform.dart';
 
 class HtmlReaderPage extends StatelessWidget {
   final NovelInfo novelInfo;
@@ -42,16 +43,19 @@ class HtmlReaderPage extends StatelessWidget {
     return MultiBlocProvider(
       providers: [
         BlocProvider(
-          create: (context) => HtmlReaderCubit(
-            novelInfo: novelInfo,
-            initialAid: initialAid,
-            initialCid: initialCid,
-            initialVolumes: volumes,
-          )..loadChapter(),
+          create:
+              (context) => HtmlReaderCubit(
+                novelInfo: novelInfo,
+                initialAid: initialAid,
+                initialCid: initialCid,
+                initialVolumes: volumes,
+              )..loadChapter(),
         ),
         BlocProvider(create: (context) => FullscreenCubit()),
         BlocProvider(create: (context) => AutoScrollCubit()),
-        BlocProvider(create: (context) => AutoScrollConfigCubit()..loadConfig()),
+        BlocProvider(
+          create: (context) => AutoScrollConfigCubit()..loadConfig(),
+        ),
       ],
       child: const _HtmlReaderViewWrapper(),
     );
@@ -74,9 +78,9 @@ class _HtmlReaderViewWrapperState extends State<_HtmlReaderViewWrapper> {
     super.initState();
     setKeepScreenUpOnReading(true);
     _scrollController = ScrollController();
-    
+
     // 监听音量键事件
-    if (Platform.isAndroid || Platform.isIOS) {
+    if (Platform.isAndroid || Platform.isIOS || AppPlatform.isOHOS) {
       final volumeControlCubit = context.read<VolumeControlCubit>();
       if (volumeControlCubit.isEnabled) {
         addVolumeListen();
@@ -97,7 +101,7 @@ class _HtmlReaderViewWrapperState extends State<_HtmlReaderViewWrapper> {
       delVolumeListen();
       readerControllerEvent.unsubscribe(_onController);
     }
-    
+
     super.dispose();
   }
 
@@ -141,7 +145,7 @@ class _HtmlReaderViewWrapperState extends State<_HtmlReaderViewWrapper> {
   void _toggleAutoScroll(BuildContext context) {
     final autoScrollCubit = context.read<AutoScrollCubit>();
     final fullscreenCubit = context.read<FullscreenCubit>();
-    
+
     if (!autoScrollCubit.state) {
       // Start auto-scroll
       fullscreenCubit.toggle();
@@ -157,7 +161,7 @@ class _HtmlReaderViewWrapperState extends State<_HtmlReaderViewWrapper> {
   void _startAutoScroll() {
     setKeepScreenUpOnScroll(true);
     _autoScrollTimer?.cancel();
-    
+
     final config = context.read<AutoScrollConfigCubit>().state;
     _autoScrollTimer = Timer.periodic(
       Duration(milliseconds: config.scrollInterval),
@@ -166,18 +170,18 @@ class _HtmlReaderViewWrapperState extends State<_HtmlReaderViewWrapper> {
           timer.cancel();
           return;
         }
-        
+
         if (_scrollController.hasClients) {
           final maxScroll = _scrollController.position.maxScrollExtent;
           final currentScroll = _scrollController.offset;
-          
+
           if (currentScroll >= maxScroll) {
             // Reached the end, stop auto-scroll
             context.read<AutoScrollCubit>().stop();
             _stopAutoScroll();
             return;
           }
-          
+
           _scrollController.jumpTo(currentScroll + config.scrollSpeed);
         }
       },
@@ -192,7 +196,7 @@ class _HtmlReaderViewWrapperState extends State<_HtmlReaderViewWrapper> {
 
   void _onController(ReaderControllerEventArgs args) {
     if (!_scrollController.hasClients) return;
-    
+
     if (args.key == "UP") {
       // 音量上键 - 向上滚动
       final currentOffset = _scrollController.offset;
@@ -202,26 +206,28 @@ class _HtmlReaderViewWrapperState extends State<_HtmlReaderViewWrapper> {
       } else {
         // 向上滚动一屏
         final screenHeight = MediaQuery.of(context).size.height;
-        final targetOffset = (currentOffset - screenHeight * 0.8).clamp(0.0, _scrollController.position.maxScrollExtent);
-        _scrollController.jumpTo(
-          targetOffset,
+        final targetOffset = (currentOffset - screenHeight * 0.8).clamp(
+          0.0,
+          _scrollController.position.maxScrollExtent,
         );
+        _scrollController.jumpTo(targetOffset);
       }
     } else if (args.key == "DOWN") {
       // 音量下键 - 向下滚动
       final currentOffset = _scrollController.offset;
       final maxScrollExtent = _scrollController.position.maxScrollExtent;
-      
+
       if (currentOffset >= maxScrollExtent - 10) {
         // 已到达底部，切换到下一章
         context.read<HtmlReaderCubit>().goToNextChapter();
       } else {
         // 向下滚动一屏
         final screenHeight = MediaQuery.of(context).size.height;
-        final targetOffset = (currentOffset + screenHeight * 0.8).clamp(0.0, maxScrollExtent);
-        _scrollController.jumpTo(
-          targetOffset,
+        final targetOffset = (currentOffset + screenHeight * 0.8).clamp(
+          0.0,
+          maxScrollExtent,
         );
+        _scrollController.jumpTo(targetOffset);
       }
     }
   }
@@ -258,69 +264,87 @@ class _HtmlReaderViewWrapperState extends State<_HtmlReaderViewWrapper> {
                       _stopAutoScroll();
                     }
                   },
-                  child: BlocBuilder<ReaderBackgroundCubit, ReaderBackgroundState>(
+                  child: BlocBuilder<
+                    ReaderBackgroundCubit,
+                    ReaderBackgroundState
+                  >(
                     builder: (context, backgroundState) {
                       String? backgroundImagePath;
                       if (isDarkMode && backgroundState.darkBackgroundExists) {
-                        backgroundImagePath = context.read<ReaderBackgroundCubit>().getDarkBackgroundPath();
-                      } else if (!isDarkMode && backgroundState.lightBackgroundExists) {
-                        backgroundImagePath = context.read<ReaderBackgroundCubit>().getLightBackgroundPath();
+                        backgroundImagePath =
+                            context
+                                .read<ReaderBackgroundCubit>()
+                                .getDarkBackgroundPath();
+                      } else if (!isDarkMode &&
+                          backgroundState.lightBackgroundExists) {
+                        backgroundImagePath =
+                            context
+                                .read<ReaderBackgroundCubit>()
+                                .getLightBackgroundPath();
                       }
-                      
+
                       return Scaffold(
                         backgroundColor: backgroundColor,
                         extendBodyBehindAppBar: true,
-                        appBar: isFullscreen
-                            ? null
-                            : AppBar(
-                                backgroundColor: backgroundColor.withOpacity(0.8),
-                                elevation: 0,
-                                title: state is HtmlReaderLoaded
-                                    ? Text(state.title)
-                                    : const Text('加载中...'),
-                                actions: [
-                                  BlocBuilder<AutoScrollCubit, bool>(
-                                    builder: (context, isAutoScrolling) {
-                                      return IconButton(
-                                        icon: Icon(
-                                          isAutoScrolling
-                                              ? Icons.pause
-                                              : Icons.play_arrow,
-                                        ),
-                                        onPressed: () => _toggleAutoScroll(context),
-                                      );
-                                    },
+                        appBar:
+                            isFullscreen
+                                ? null
+                                : AppBar(
+                                  backgroundColor: backgroundColor.withOpacity(
+                                    0.8,
                                   ),
-                                  IconButton(
-                                    icon: const Icon(Icons.settings),
-                                    onPressed: () => _showSettings(context),
-                                  ),
-                                  IconButton(
-                                    icon: const Icon(Icons.menu),
-                                    onPressed: () {
-                                      showModalBottomSheet(
-                                        context: context,
-                                        builder:
-                                            (context) => BlocProvider.value(
-                                              value: cubit,
-                                              child: _ChapterList(
-                                                volumes: cubit.initialVolumes,
-                                                currentAid: cubit.initialAid,
-                                                currentCid: cubit.initialCid,
-                                                onChapterSelected: (aid, cid) {
-                                                  cubit.loadChapter(
-                                                    aid: aid,
-                                                    cid: cid,
-                                                  );
-                                                  Navigator.pop(context);
-                                                },
+                                  elevation: 0,
+                                  title:
+                                      state is HtmlReaderLoaded
+                                          ? Text(state.title)
+                                          : const Text('加载中...'),
+                                  actions: [
+                                    BlocBuilder<AutoScrollCubit, bool>(
+                                      builder: (context, isAutoScrolling) {
+                                        return IconButton(
+                                          icon: Icon(
+                                            isAutoScrolling
+                                                ? Icons.pause
+                                                : Icons.play_arrow,
+                                          ),
+                                          onPressed:
+                                              () => _toggleAutoScroll(context),
+                                        );
+                                      },
+                                    ),
+                                    IconButton(
+                                      icon: const Icon(Icons.settings),
+                                      onPressed: () => _showSettings(context),
+                                    ),
+                                    IconButton(
+                                      icon: const Icon(Icons.menu),
+                                      onPressed: () {
+                                        showModalBottomSheet(
+                                          context: context,
+                                          builder:
+                                              (context) => BlocProvider.value(
+                                                value: cubit,
+                                                child: _ChapterList(
+                                                  volumes: cubit.initialVolumes,
+                                                  currentAid: cubit.initialAid,
+                                                  currentCid: cubit.initialCid,
+                                                  onChapterSelected: (
+                                                    aid,
+                                                    cid,
+                                                  ) {
+                                                    cubit.loadChapter(
+                                                      aid: aid,
+                                                      cid: cid,
+                                                    );
+                                                    Navigator.pop(context);
+                                                  },
+                                                ),
                                               ),
-                                            ),
-                                      );
-                                    },
-                                  ),
-                                ],
-                              ),
+                                        );
+                                      },
+                                    ),
+                                  ],
+                                ),
                         body: Stack(
                           children: [
                             // 背景图片
@@ -329,7 +353,9 @@ class _HtmlReaderViewWrapperState extends State<_HtmlReaderViewWrapper> {
                                 child: Image.file(
                                   File(backgroundImagePath),
                                   fit: BoxFit.cover,
-                                  opacity: AlwaysStoppedAnimation(backgroundState.opacity),
+                                  opacity: AlwaysStoppedAnimation(
+                                    backgroundState.opacity,
+                                  ),
                                 ),
                               ),
                             // 底层内容
@@ -340,44 +366,47 @@ class _HtmlReaderViewWrapperState extends State<_HtmlReaderViewWrapper> {
                               child:
                                   state is HtmlReaderLoading
                                       ? const Center(
-                                          child: CircularProgressIndicator(),
-                                        )
+                                        child: CircularProgressIndicator(),
+                                      )
                                       : state is HtmlReaderError
                                       ? Center(
-                                          child: Column(
-                                            mainAxisAlignment: MainAxisAlignment.center,
-                                            children: [
-                                              Text(
-                                                state.error,
-                                                style: TextStyle(color: textColor),
+                                        child: Column(
+                                          mainAxisAlignment:
+                                              MainAxisAlignment.center,
+                                          children: [
+                                            Text(
+                                              state.error,
+                                              style: TextStyle(
+                                                color: textColor,
                                               ),
-                                              const SizedBox(height: 16),
-                                              ElevatedButton(
-                                                onPressed: () {
-                                                  context
-                                                      .read<HtmlReaderCubit>()
-                                                      .loadChapter();
-                                                },
-                                                child: const Text('重试'),
-                                              ),
-                                            ],
-                                          ),
-                                        )
+                                            ),
+                                            const SizedBox(height: 16),
+                                            ElevatedButton(
+                                              onPressed: () {
+                                                context
+                                                    .read<HtmlReaderCubit>()
+                                                    .loadChapter();
+                                              },
+                                              child: const Text('重试'),
+                                            ),
+                                          ],
+                                        ),
+                                      )
                                       : state is HtmlReaderLoaded
                                       ? _ReaderContent(
-                                          parsedContent: state.parsedContent,
-                                          onPreviousChapter: () {
-                                            context
-                                                .read<HtmlReaderCubit>()
-                                                .goToPreviousChapter();
-                                          },
-                                          onNextChapter: () {
-                                            context
-                                                .read<HtmlReaderCubit>()
-                                                .goToNextChapter();
-                                          },
-                                          scrollController: _scrollController,
-                                        )
+                                        parsedContent: state.parsedContent,
+                                        onPreviousChapter: () {
+                                          context
+                                              .read<HtmlReaderCubit>()
+                                              .goToPreviousChapter();
+                                        },
+                                        onNextChapter: () {
+                                          context
+                                              .read<HtmlReaderCubit>()
+                                              .goToNextChapter();
+                                        },
+                                        scrollController: _scrollController,
+                                      )
                                       : const SizedBox.shrink(),
                             ),
                             // 顶部和底部导航按钮（仅在隐藏 AppBar 时显示）
@@ -553,7 +582,10 @@ class _ReaderContent extends StatelessWidget {
 
                                 return BlocBuilder<LeftPaddingCubit, double>(
                                   builder: (context, leftPadding) {
-                                    return BlocBuilder<RightPaddingCubit, double>(
+                                    return BlocBuilder<
+                                      RightPaddingCubit,
+                                      double
+                                    >(
                                       builder: (context, rightPadding) {
                                         return ListView(
                                           controller: scrollController,
@@ -731,7 +763,7 @@ class _ReaderSettings extends StatelessWidget {
                           value: spacing,
                           min: 16,
                           max: 32,
-                          divisions: 8,
+                          divisions: 4,
                           label: spacing.round().toString(),
                           onChanged: (value) {
                             paragraphSpacingCubit.updateSpacing(value);
@@ -786,9 +818,12 @@ class _ReaderSettings extends StatelessWidget {
                                           min: 0,
                                           max: 100,
                                           divisions: 20,
-                                          label: topBarHeight.round().toString(),
+                                          label:
+                                              topBarHeight.round().toString(),
                                           onChanged: (value) {
-                                            topBarHeightCubit.updateHeight(value);
+                                            topBarHeightCubit.updateHeight(
+                                              value,
+                                            );
                                           },
                                         ),
                                       ),
@@ -807,9 +842,14 @@ class _ReaderSettings extends StatelessWidget {
                                           min: 0,
                                           max: 100,
                                           divisions: 20,
-                                          label: bottomBarHeight.round().toString(),
+                                          label:
+                                              bottomBarHeight
+                                                  .round()
+                                                  .toString(),
                                           onChanged: (value) {
-                                            bottomBarHeightCubit.updateHeight(value);
+                                            bottomBarHeightCubit.updateHeight(
+                                              value,
+                                            );
                                           },
                                         ),
                                       ),
@@ -830,7 +870,9 @@ class _ReaderSettings extends StatelessWidget {
                                           divisions: 25,
                                           label: leftPadding.round().toString(),
                                           onChanged: (value) {
-                                            leftPaddingCubit.updatePadding(value);
+                                            leftPaddingCubit.updatePadding(
+                                              value,
+                                            );
                                           },
                                         ),
                                       ),
@@ -849,9 +891,12 @@ class _ReaderSettings extends StatelessWidget {
                                           min: 0,
                                           max: 50,
                                           divisions: 25,
-                                          label: rightPadding.round().toString(),
+                                          label:
+                                              rightPadding.round().toString(),
                                           onChanged: (value) {
-                                            rightPaddingCubit.updatePadding(value);
+                                            rightPaddingCubit.updatePadding(
+                                              value,
+                                            );
                                           },
                                         ),
                                       ),
@@ -1086,14 +1131,13 @@ class _ReaderSettings extends StatelessWidget {
                           divisions: 6,
                           label: '${config.scrollInterval}ms',
                           onChanged: (value) {
-                            autoScrollConfigCubit.updateScrollInterval(value.toInt());
+                            autoScrollConfigCubit.updateScrollInterval(
+                              value.toInt(),
+                            );
                           },
                         ),
                       ),
-                      Text(
-                        '${config.scrollInterval}ms',
-                        style: TextStyle(),
-                      ),
+                      Text('${config.scrollInterval}ms', style: TextStyle()),
                     ],
                   );
                 },
@@ -1117,7 +1161,10 @@ class _ReaderSettings extends StatelessWidget {
                           },
                         ),
                       ),
-                      Text('${(backgroundState.opacity * 100).round()}%', style: TextStyle()),
+                      Text(
+                        '${(backgroundState.opacity * 100).round()}%',
+                        style: TextStyle(),
+                      ),
                     ],
                   );
                 },
@@ -1138,14 +1185,19 @@ class _ReaderSettings extends StatelessWidget {
                         children: [
                           Expanded(
                             child: OutlinedButton.icon(
-                              icon: Icon(backgroundState.lightBackgroundExists 
-                                  ? Icons.image 
-                                  : Icons.add_photo_alternate),
-                              label: Text(backgroundState.lightBackgroundExists 
-                                  ? '更新浅色背景' 
-                                  : '设置浅色背景'),
+                              icon: Icon(
+                                backgroundState.lightBackgroundExists
+                                    ? Icons.image
+                                    : Icons.add_photo_alternate,
+                              ),
+                              label: Text(
+                                backgroundState.lightBackgroundExists
+                                    ? '更新浅色背景'
+                                    : '设置浅色背景',
+                              ),
                               onPressed: () async {
-                                await readerBackgroundCubit.updateLightBackground();
+                                await readerBackgroundCubit
+                                    .updateLightBackground();
                               },
                             ),
                           ),
@@ -1155,7 +1207,8 @@ class _ReaderSettings extends StatelessWidget {
                               icon: const Icon(Icons.delete),
                               label: const Text('删除'),
                               onPressed: () async {
-                                await readerBackgroundCubit.deleteLightBackground();
+                                await readerBackgroundCubit
+                                    .deleteLightBackground();
                               },
                             ),
                         ],
@@ -1165,14 +1218,19 @@ class _ReaderSettings extends StatelessWidget {
                         children: [
                           Expanded(
                             child: OutlinedButton.icon(
-                              icon: Icon(backgroundState.darkBackgroundExists 
-                                  ? Icons.image 
-                                  : Icons.add_photo_alternate),
-                              label: Text(backgroundState.darkBackgroundExists 
-                                  ? '更新深色背景' 
-                                  : '设置深色背景'),
+                              icon: Icon(
+                                backgroundState.darkBackgroundExists
+                                    ? Icons.image
+                                    : Icons.add_photo_alternate,
+                              ),
+                              label: Text(
+                                backgroundState.darkBackgroundExists
+                                    ? '更新深色背景'
+                                    : '设置深色背景',
+                              ),
                               onPressed: () async {
-                                await readerBackgroundCubit.updateDarkBackground();
+                                await readerBackgroundCubit
+                                    .updateDarkBackground();
                               },
                             ),
                           ),
@@ -1182,7 +1240,8 @@ class _ReaderSettings extends StatelessWidget {
                               icon: const Icon(Icons.delete),
                               label: const Text('删除'),
                               onPressed: () async {
-                                await readerBackgroundCubit.deleteDarkBackground();
+                                await readerBackgroundCubit
+                                    .deleteDarkBackground();
                               },
                             ),
                         ],
@@ -1196,10 +1255,28 @@ class _ReaderSettings extends StatelessWidget {
               TextButton(
                 onPressed: () async {
                   await themeCubit.resetToDefault();
-                  await topBarHeightCubit.updateHeight(56);
-                  await bottomBarHeightCubit.updateHeight(56);
-                  await leftPaddingCubit.updatePadding(16);
-                  await rightPaddingCubit.updatePadding(16);
+                  await fontSizeCubit.updateFontSize(
+                    FontSizeCubit.defaultFontSize,
+                  );
+                  await paragraphSpacingCubit.updateSpacing(
+                    ParagraphSpacingCubit.defaultSpacing,
+                  );
+                  await lineHeightCubit.updateLineHeight(
+                    LineHeightCubit.defaultLineHeight,
+                  );
+                  await topBarHeightCubit.updateHeight(
+                    TopBarHeightCubit.defaultHeight,
+                  );
+                  await bottomBarHeightCubit.updateHeight(
+                    BottomBarHeightCubit.defaultHeight,
+                  );
+                  await leftPaddingCubit.updatePadding(
+                    LeftPaddingCubit.defaultPadding,
+                  );
+                  await rightPaddingCubit.updatePadding(
+                    RightPaddingCubit.defaultPadding,
+                  );
+                  await readerBackgroundCubit.resetToDefault();
                 },
                 child: const Text('重置为默认'),
               ),

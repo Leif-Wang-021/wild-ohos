@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'package:wild/pages/auth_cubit.dart';
 import 'package:wild/pages/init_page.dart';
 import 'package:wild/pages/login_page.dart';
@@ -15,6 +16,7 @@ import 'package:wild/pages/novel/paragraph_spacing_cubit.dart';
 import 'package:wild/pages/novel/theme_cubit.dart';
 import 'package:wild/pages/novel/reader_type_cubit.dart';
 import 'package:wild/src/rust/frb_generated.dart';
+import 'package:wild/utils/app_platform.dart';
 import 'package:wild/src/rust/wenku8/models.dart';
 import 'package:wild/pages/home/bookshelf_cubit.dart';
 import 'package:wild/pages/home/category_page.dart';
@@ -48,11 +50,28 @@ final darkTheme = ThemeData(
 );
 
 Future<void> main() async {
-  HttpOverrides.global = _LoggingHttpOverrides();  // ← 新增這行
+  print("=== WILD OHOS START ===");
+  HttpOverrides.global = _LoggingHttpOverrides();
   WidgetsFlutterBinding.ensureInitialized();
+  print("=== Binding OK ===");
   await AppInfo.init();
-  await RustLib.init();
+  print("=== AppInfo OK, os=${Platform.operatingSystem} ===");
+  print("=== isOHOS=${AppPlatform.isOHOS} ===");
+  print("=== Calling RustLib.init()... ===");
+  try {
+    await RustLib.init(
+      externalLibrary: AppPlatform.isOHOS
+          ? ExternalLibrary.open('librust_lib_wild.so')
+          : null,
+    );
+    print("=== RustLib OK ===");
+  } catch (e) {
+    print("=== RustLib FAILED: $e ===");
+    rethrow;
+  }
+  print("=== runApp START ===");
   runApp(const MyApp());
+  print("=== runApp DONE ===");
 }
 
 class MyApp extends StatelessWidget {
@@ -91,11 +110,14 @@ class YourApp extends StatelessWidget {
     return BlocBuilder<ThemeCubit, ReaderTheme>(
       builder: (context, theme) {
         return MaterialApp(
+          debugShowCheckedModeBanner: false,
           title: '轻小说文库',
-          theme:
-              theme.themeMode == ReaderThemeMode.dark ? darkTheme : lightTheme,
-          darkTheme:
-              theme.themeMode == ReaderThemeMode.light ? lightTheme : darkTheme,
+          theme: theme.themeMode == ReaderThemeMode.dark
+              ? darkTheme
+              : lightTheme,
+          darkTheme: theme.themeMode == ReaderThemeMode.light
+              ? lightTheme
+              : darkTheme,
           initialRoute: '/init',
           routes: {
             '/init': (context) => const InitPage(),
@@ -109,7 +131,9 @@ class YourApp extends StatelessWidget {
               return NovelInfoPage(novelId: args as String);
             },
             '/novel/reviews': (context) {
-              final args = ModalRoute.of(context)!.settings.arguments as Map<String, dynamic>;
+              final args =
+                  ModalRoute.of(context)!.settings.arguments
+                      as Map<String, dynamic>;
               return ReviewsPage(
                 aid: args['aid'] as String,
                 title: args['title'] as String,
@@ -223,6 +247,9 @@ class _LoggingHttpClient implements HttpClient {
   }
 
   // 其他方法交給原本的 client
+  @override
+  void close({bool force = false}) => _inner.close(force: force);
+
   noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
@@ -243,4 +270,3 @@ class _LoggingHttpClientRequest implements HttpClientRequest {
 
   noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
-

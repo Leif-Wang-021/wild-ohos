@@ -1,4 +1,6 @@
+import 'dart:io';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:wild/utils/app_platform.dart';
 
 class AppInfo {
   static PackageInfo? _packageInfo;
@@ -6,6 +8,11 @@ class AppInfo {
   static String? _buildNumber;
 
   static Future<void> init() async {
+    if (AppPlatform.isOHOS) {
+      _version = "0.0.14";
+      _buildNumber = "14";
+      return;
+    }
     _packageInfo = await PackageInfo.fromPlatform();
     _version = _packageInfo?.version;
     _buildNumber = _packageInfo?.buildNumber;
@@ -18,11 +25,12 @@ class AppInfo {
   static String get buildNumber => _buildNumber ?? '';
 
   /// 获取完整版本号 (例如: 1.0.0+1)
-  static String get fullVersion => '$_version+$_buildNumber';
+  static String get fullVersion =>
+      '${version.isEmpty ? "0.0.14" : version}+${buildNumber.isEmpty ? "14" : buildNumber}';
 
   /// 获取应用名称
   static String get appName => _packageInfo?.appName ?? '';
 
   /// 获取应用包名
   static String get packageName => _packageInfo?.packageName ?? '';
-} 
+}

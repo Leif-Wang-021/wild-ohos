@@ -1,0 +1,69 @@
+# Copyright (c) 2025 Huawei Device Co., Ltd. All rights reserved.
+# Use of this source code is governed by a BSD-style license that can be
+# found in the LICENSE_HW file.
+
+# Configuration for OHOS Flutter CI/CD
+
+# Environment variables
+env_vars:
+  TOOL_HOME: /home/tools/command-line-tools
+  DEVECO_SDK_HOME: /home/tools/command-line-tools/sdk
+  PUB_CACHE: /home/tools/Flutter/PUB
+  PUB_HOSTED_URL: https://pub.flutter-io.cn
+  FLUTTER_STORAGE_BASE_URL: https://storage.flutter-io.cn
+  # PATH components - appended in order
+  # Note: PATH is handled specially to expand variables and join with colon
+  PATH:
+    - "$WORK_DIR/third_party/flutter_flutter/bin"
+    - "$DEVECO_SDK_HOME/default/openharmony/toolchains"
+    - "$TOOL_HOME/ohpm/bin"
+    - "$TOOL_HOME/hvigor/bin"
+    - "$TOOL_HOME/tool/node/bin"
+    - "$DEVECO_SDK_HOME/default/openharmony/native/llvm/bin"
+    - "$PATH"
+
+# Preparation steps - executed in order
+preparation_steps:
+  - name: Check System Information
+    script: .ci/scripts/check_system_info.sh
+    description: Verify system OS and user information
+    required: true
+
+  - name: Check Tool Versions
+    script: .ci/scripts/check_tool_versions.sh
+    description: Verify required tools and their versions
+    required: true
+
+  - name: Check Network Connectivity
+    script: .ci/scripts/check_network.sh
+    description: Verify network connectivity to required URLs
+    required: true
+
+  - name: Check Project Structure
+    script: .ci/scripts/check_project_structure.sh
+    description: Verify project directories exist and create needed folders
+    required: true
+
+  - name: Prepare Flutter
+    script: .ci/scripts/clone_project.sh
+    description: Prepare Flutter project and sync to target branch
+    args: ["https://gitcode.com/openharmony-tpc/flutter_flutter.git", "dev"]
+    required: true
+
+  - name: Prepare Packages
+    script: .ci/scripts/prepare_project.sh
+    description: Prepare Packages project and sync to target branch
+    args: ["flutter_packages", "master"]
+    required: true
+
+# Compilation steps - executed in order
+compilation_steps:
+  - name: Build haps
+    script: .ci/scripts/build_haps.sh
+    description: Build haps for changed packages
+    required: true
+  
+  - name: Unit Tests
+    script: .ci/scripts/run_tests.sh
+    description: Run unit Tests for changed packages
+    required: false

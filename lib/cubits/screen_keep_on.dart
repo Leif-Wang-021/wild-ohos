@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:wild/utils/app_platform.dart';
 
 import 'package:wild/methods.dart';
 
@@ -8,7 +9,7 @@ import 'screen_up_on_scroll_property.dart';
 bool _screenKeepOn = false;
 
 Future _setKeepScreenOn(bool keepScreenOn) async {
-  if (!(Platform.isAndroid || Platform.isIOS)) {
+  if (!(Platform.isAndroid || Platform.isIOS || AppPlatform.isOHOS)) {
     return;
   }
   if (_screenKeepOn == keepScreenOn) {

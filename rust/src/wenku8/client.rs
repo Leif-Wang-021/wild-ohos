@@ -93,10 +93,7 @@ impl Wenku8Client {
                 "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
             ),
         );
-        headers.insert(
-            ACCEPT_LANGUAGE,
-            HeaderValue::from_static("zh-CN,zh;q=0.9"),
-        );
+        headers.insert(ACCEPT_LANGUAGE, HeaderValue::from_static("zh-CN,zh;q=0.9"));
         if !referer.is_empty() {
             if let Ok(v) = HeaderValue::from_str(referer) {
                 headers.insert(REFERER, v);
@@ -318,12 +315,7 @@ impl Wenku8Client {
         );
         let ua = self.load_user_agent().await;
         let headers = Self::default_headers_sync(&ua);
-        let response = self
-            .client
-            .get(url)
-            .headers(headers)
-            .send()
-            .await?;
+        let response = self.client.get(url).headers(headers).send().await?;
         if !response.status().is_success() {
             return Err(anyhow!("Failed to get novel info: {}", response.status()));
         }
@@ -822,18 +814,16 @@ impl Wenku8Client {
         let referer = format!("{}/", api_host);
         let headers = self.bookcase_headers(&referer).await;
         let url = format!("{}/modules/article/bookcase.php", api_host);
-        let resp = self
-            .client
-            .get(&url)
-            .headers(headers)
-            .send()
-            .await?;
+        let resp = self.client.get(&url).headers(headers).send().await?;
 
         let status = resp.status();
         let body = resp.bytes().await.unwrap_or_default();
         if !status.is_success() {
             let text = String::from_utf8_lossy(&body);
-            if text.contains("Attention Required") || text.contains("cf_chl") || text.contains("Just a moment") {
+            if text.contains("Attention Required")
+                || text.contains("cf_chl")
+                || text.contains("Just a moment")
+            {
                 return Err(anyhow!("Cloudflare 封鎖了書架請求，請嘗試重新登入後再試"));
             }
             return Err(anyhow!("Failed to get bookshelf: HTTP {}", status));
@@ -963,12 +953,7 @@ impl Wenku8Client {
         );
         let ua = self.load_user_agent().await;
         let headers = Self::default_headers_sync(&ua);
-        let response = self
-            .client
-            .get(url)
-            .headers(headers)
-            .send()
-            .await?;
+        let response = self.client.get(url).headers(headers).send().await?;
         if !response.status().is_success() {
             return Err(anyhow!("Failed to get novel reader: {}", response.status()));
         }
@@ -981,21 +966,12 @@ impl Wenku8Client {
     pub async fn c_content(&self, aid: &str, cid: &str) -> Result<String> {
         let aid_num: u64 = aid.parse().unwrap_or(0);
         let sub_dir = aid_num / 1000;
-        let url = format!(
-            "{}/novel/{}/{}/{}.htm",
-            self.load_api_host().await,
-            sub_dir,
-            aid,
-            cid
-        );
+        let api_host = self.load_api_host().await;
+        let chapter_base = format!("{}/novel/{}/{}/", api_host, sub_dir, aid);
+        let url = format!("{}/novel/{}/{}/{}.htm", api_host, sub_dir, aid, cid);
         let ua = self.load_user_agent().await;
         let headers = Self::default_headers_sync(&ua);
-        let response = self
-            .client
-            .get(url)
-            .headers(headers)
-            .send()
-            .await?;
+        let response = self.client.get(url).headers(headers).send().await?;
         if !response.status().is_success() {
             return Err(anyhow!("Failed to get novel reader: {}", response.status()));
         }
@@ -1011,11 +987,16 @@ impl Wenku8Client {
 
         // Build plain text: skip <ul> watermark, convert <br> to newline
         let mut result = String::new();
-        Self::extract_content_text(content, &mut result);
+        Self::extract_content_text(content, &mut result, &api_host, &chapter_base);
         Ok(result.trim().to_string())
     }
 
-    fn extract_content_text(element: ElementRef, buf: &mut String) {
+    fn extract_content_text(
+        element: ElementRef,
+        buf: &mut String,
+        api_host: &str,
+        chapter_base: &str,
+    ) {
         use scraper::Node;
         for child in element.children() {
             match child.value() {
@@ -1029,16 +1010,72 @@ impl Wenku8Client {
                         // skip watermark block
                         continue;
                     }
+                    let child_ref = ElementRef::wrap(child).unwrap();
+                    if name == "img" {
+                        if let Some(src) = child_ref.value().attr("src") {
+                            let image_url = Self::absolute_url(src, api_host, chapter_base);
+                            if !image_url.is_empty() {
+                                buf.push_str("\n<!--image-->");
+                                buf.push_str(&image_url);
+                                buf.push_str("<!--image-->\n");
+                            }
+                        }
+                        continue;
+                    }
                     if name == "br" {
                         buf.push('\n');
                         continue;
                     }
-                    let child_ref = ElementRef::wrap(child).unwrap();
-                    Self::extract_content_text(child_ref, buf);
+                    Self::extract_content_text(child_ref, buf, api_host, chapter_base);
                 }
                 _ => {}
             }
         }
+    }
+
+    fn absolute_url(src: &str, api_host: &str, chapter_base: &str) -> String {
+        let src = src.trim();
+        if src.is_empty() {
+            return String::new();
+        }
+        for host in [
+            "http://www.wenku8.net",
+            "https://www.wenku8.net",
+            "http://www.wenku8.com",
+            "https://www.wenku8.com",
+        ] {
+            if let Some(path) = src.strip_prefix(host) {
+                if path.starts_with("/image/") {
+                    return format!("https://img.wenku8.com{}", path);
+                }
+            }
+        }
+        if src.starts_with("http://") || src.starts_with("https://") {
+            return src.to_string();
+        }
+        if src.starts_with("//") {
+            return format!("https:{}", src);
+        }
+        if src.starts_with("/image/") {
+            return format!("https://img.wenku8.com{}", src);
+        }
+        if src.starts_with("image/") {
+            return format!("https://img.wenku8.com/{}", src);
+        }
+        let mut image_src = src;
+        while let Some(stripped) = image_src.strip_prefix("./") {
+            image_src = stripped;
+        }
+        while let Some(stripped) = image_src.strip_prefix("../") {
+            image_src = stripped;
+        }
+        if image_src.starts_with("image/") {
+            return format!("https://img.wenku8.com/{}", image_src);
+        }
+        if src.starts_with('/') {
+            return format!("{}{}", api_host.trim_end_matches('/'), src);
+        }
+        format!("{}{}", chapter_base, src)
     }
 
     pub async fn toplist(&self, sort: &str, page: i32) -> Result<PageStats<NovelCover>> {
@@ -1108,11 +1145,7 @@ impl Wenku8Client {
             .gzip(true)
             .build()?;
 
-        let response = temp_client
-            .get(&url)
-            .headers(headers)
-            .send()
-            .await?;
+        let response = temp_client.get(&url).headers(headers).send().await?;
 
         let status = response.status();
 
@@ -1149,12 +1182,7 @@ impl Wenku8Client {
         let url = format!("{}/modules/article/bookcase.php?charset=gbk", api_host);
         let referer = format!("{}/", api_host);
         let headers = self.bookcase_headers(&referer).await;
-        let response = self
-            .client
-            .get(url)
-            .headers(headers)
-            .send()
-            .await?;
+        let response = self.client.get(url).headers(headers).send().await?;
         let status = response.status();
         let ua_used = self.load_user_agent().await;
         let body = response.bytes().await.unwrap_or_default();
@@ -1162,14 +1190,22 @@ impl Wenku8Client {
         if !status.is_success() {
             return Err(anyhow!(
                 "書架請求失敗 [HTTP {}] UA={} body_preview={}",
-                status, ua_used, text_preview
+                status,
+                ua_used,
+                text_preview
             ));
         }
         // 200 但可能是 CF challenge 頁面
-        if text_preview.contains("Just a moment") || text_preview.contains("cf_chl") || text_preview.contains("Attention Required") || text_preview.contains("Enable JavaScript") {
+        if text_preview.contains("Just a moment")
+            || text_preview.contains("cf_chl")
+            || text_preview.contains("Attention Required")
+            || text_preview.contains("Enable JavaScript")
+        {
             return Err(anyhow!(
                 "Cloudflare Challenge [HTTP {}] UA={} body_preview={}",
-                status, ua_used, text_preview
+                status,
+                ua_used,
+                text_preview
             ));
         }
 
@@ -1197,20 +1233,21 @@ impl Wenku8Client {
 
     pub async fn book_in_case(&self, case_id: &str) -> Result<BookcaseDto> {
         let api_host = self.load_api_host().await;
-        let url = format!("{}/modules/article/bookcase.php?classid={case_id}&charset=gbk", api_host);
+        let url = format!(
+            "{}/modules/article/bookcase.php?classid={case_id}&charset=gbk",
+            api_host
+        );
         let referer = format!("{}/modules/article/bookcase.php", api_host);
         let headers = self.bookcase_headers(&referer).await;
-        let response = self
-            .client
-            .get(url)
-            .headers(headers)
-            .send()
-            .await?;
+        let response = self.client.get(url).headers(headers).send().await?;
         let status = response.status();
         let body = response.bytes().await.unwrap_or_default();
         if !status.is_success() {
             let text = String::from_utf8_lossy(&body);
-            if text.contains("Attention Required") || text.contains("cf_chl") || text.contains("Just a moment") {
+            if text.contains("Attention Required")
+                || text.contains("cf_chl")
+                || text.contains("Just a moment")
+            {
                 return Err(anyhow!("Cloudflare 封鎖了書架請求，請嘗試重新登入後再試"));
             }
             return Err(anyhow!("Failed to get book in case: {}", text));
@@ -1335,7 +1372,10 @@ impl Wenku8Client {
 
     pub async fn delete_bookcase(&self, delid: &str) -> Result<()> {
         let api_host = self.load_api_host().await;
-        let url = format!("{}/modules/article/bookcase.php?delid={delid}&charset=gbk", api_host);
+        let url = format!(
+            "{}/modules/article/bookcase.php?delid={delid}&charset=gbk",
+            api_host
+        );
         let referer = format!("{}/modules/article/bookcase.php", api_host);
         let headers = self.bookcase_headers(&referer).await;
         // 刪除後也會 302 redirect，用 no-redirect 客戶端
@@ -1344,11 +1384,7 @@ impl Wenku8Client {
             .redirect(reqwest::redirect::Policy::none())
             .gzip(true)
             .build()?;
-        let response = temp_client
-            .get(url)
-            .headers(headers)
-            .send()
-            .await?;
+        let response = temp_client.get(url).headers(headers).send().await?;
         let status = response.status();
         if status.as_u16() == 302 || status.is_success() {
             Ok(())
@@ -1408,15 +1444,13 @@ impl Wenku8Client {
         page: i32,
     ) -> Result<PageStats<NovelCover>> {
         let search_key = gbk_url_encode(search_key);
+        let api_host = self.load_api_host().await;
         let url = format!(
-            "{}/modules/article/search.php?searchtype={search_type}&searchkey={search_key}&page={page}&charset=gbk",self.load_api_host().await
+            "{api_host}/modules/article/search.php?searchtype={search_type}&searchkey={search_key}&page={page}&charset=gbk"
         );
-        let response = self
-            .client
-            .get(url)
-            .header("User-Agent", self.load_user_agent().await)
-            .send()
-            .await?;
+        let referer = format!("{api_host}/modules/article/search.php");
+        let headers = self.bookcase_headers(&referer).await;
+        let response = self.client.get(url).headers(headers).send().await?;
         if !response.status().is_success() {
             return Err(anyhow!(
                 "Failed to get search result: {}",

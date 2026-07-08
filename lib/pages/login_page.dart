@@ -27,6 +27,7 @@ class _LoginPageState extends State<LoginPage> {
   void dispose() {
     _usernameController.dispose();
     _passwordController.dispose();
+    _checkcodeController.dispose();
     super.dispose();
   }
 
@@ -103,123 +104,136 @@ class _LoginPageState extends State<LoginPage> {
           if (state.status == AuthStatus.initial) {
             return const Center(child: CircularProgressIndicator());
           }
-          return Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Form(
-              key: _formKey,
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Expanded(flex: 2, child: Container()),
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 50.0),
-                    child: Image.asset(
-                      'lib/assets/icon.png',
-                      width: 96,
-                      height: 96,
-                    ),
-                  ),
-                  TextFormField(
-                    controller: _usernameController,
-                    decoration: const InputDecoration(
-                      labelText: '用户名',
-                      border: OutlineInputBorder(),
-                    ),
-                    validator: (value) {
-                      if (value?.isEmpty ?? true) {
-                        return '请输入用户名';
-                      }
-                      return null;
-                    },
-                  ),
-                  const SizedBox(height: 16),
-                  TextFormField(
-                    controller: _passwordController,
-                    decoration: const InputDecoration(
-                      labelText: '密码',
-                      border: OutlineInputBorder(),
-                    ),
-                    obscureText: true,
-                    validator: (value) {
-                      if (value?.isEmpty ?? true) {
-                        return '请输入密码';
-                      }
-                      return null;
-                    },
-                  ),
-                  const SizedBox(height: 16),
-                  Builder(
-                    builder: (context) {
-                      switch (state.checkcodeStatus) {
-                        case CheckcodeStatus.loading:
-                          return const SizedBox(
-                            width: 200,
-                            height: 50,
-                            child: Center(child: CircularProgressIndicator()),
-                          );
-                        case CheckcodeStatus.success:
-                          if (state.checkcode == null ||
-                              state.checkcode!.isEmpty) {
-                            return _buildRetryButton(context);
-                          }
-                          return GestureDetector(
-                            onTap:
-                                () => context.read<AuthCubit>().loadCheckcode(),
-                            child: Image.memory(
-                              state.checkcode!,
-                              width: 200,
-                              height: 50,
-                              fit: BoxFit.contain,
-                            ),
-                          );
-                        case CheckcodeStatus.error:
-                        case CheckcodeStatus.initial:
-                          return _buildRetryButton(context);
-                      }
-                    },
-                  ),
-                  Container(height: 20),
-                  TextFormField(
-                    controller: _checkcodeController,
-                    decoration: const InputDecoration(
-                      labelText: '验证码',
-                      border: OutlineInputBorder(),
-                    ),
-                    validator: (value) {
-                      if (value?.isEmpty ?? true) {
-                        return '请输入验证码';
-                      }
-                      return null;
-                    },
-                  ),
-                  const SizedBox(height: 24),
-                  Row(
+          return SafeArea(
+            child: SingleChildScrollView(
+              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.viewInsetsOf(context).bottom,
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Form(
+                  key: _formKey,
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Expanded(
-                        flex: 1,
-                        child: OutlinedButton(
-                          onPressed: _onRegisterPressed,
-                          child: const Text('注册'),
+                      const SizedBox(height: 48),
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 50.0),
+                        child: Image.asset(
+                          'lib/assets/icon.png',
+                          width: 96,
+                          height: 96,
                         ),
                       ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        flex: 2,
-                        child: ElevatedButton(
-                          onPressed:
-                              state.status == AuthStatus.loading
-                                  ? null
-                                  : _onLoginPressed,
-                          child:
-                              state.status == AuthStatus.loading
-                                  ? const CircularProgressIndicator()
-                                  : const Text('登录'),
+                      TextFormField(
+                        controller: _usernameController,
+                        decoration: const InputDecoration(
+                          labelText: '用户名',
+                          border: OutlineInputBorder(),
                         ),
+                        validator: (value) {
+                          if (value?.isEmpty ?? true) {
+                            return '请输入用户名';
+                          }
+                          return null;
+                        },
                       ),
+                      const SizedBox(height: 16),
+                      TextFormField(
+                        controller: _passwordController,
+                        decoration: const InputDecoration(
+                          labelText: '密码',
+                          border: OutlineInputBorder(),
+                        ),
+                        obscureText: true,
+                        validator: (value) {
+                          if (value?.isEmpty ?? true) {
+                            return '请输入密码';
+                          }
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 16),
+                      Builder(
+                        builder: (context) {
+                          switch (state.checkcodeStatus) {
+                            case CheckcodeStatus.loading:
+                              return const SizedBox(
+                                width: 200,
+                                height: 50,
+                                child: Center(
+                                  child: CircularProgressIndicator(),
+                                ),
+                              );
+                            case CheckcodeStatus.success:
+                              if (state.checkcode == null ||
+                                  state.checkcode!.isEmpty) {
+                                return _buildRetryButton(context);
+                              }
+                              return GestureDetector(
+                                onTap:
+                                    () =>
+                                        context
+                                            .read<AuthCubit>()
+                                            .loadCheckcode(),
+                                child: Image.memory(
+                                  state.checkcode!,
+                                  width: 200,
+                                  height: 50,
+                                  fit: BoxFit.contain,
+                                ),
+                              );
+                            case CheckcodeStatus.error:
+                            case CheckcodeStatus.initial:
+                              return _buildRetryButton(context);
+                          }
+                        },
+                      ),
+                      Container(height: 20),
+                      TextFormField(
+                        controller: _checkcodeController,
+                        decoration: const InputDecoration(
+                          labelText: '验证码',
+                          border: OutlineInputBorder(),
+                        ),
+                        validator: (value) {
+                          if (value?.isEmpty ?? true) {
+                            return '请输入验证码';
+                          }
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 24),
+                      Row(
+                        children: [
+                          Expanded(
+                            flex: 1,
+                            child: OutlinedButton(
+                              onPressed: _onRegisterPressed,
+                              child: const Text('注册'),
+                            ),
+                          ),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            flex: 2,
+                            child: ElevatedButton(
+                              onPressed:
+                                  state.status == AuthStatus.loading
+                                      ? null
+                                      : _onLoginPressed,
+                              child:
+                                  state.status == AuthStatus.loading
+                                      ? const CircularProgressIndicator()
+                                      : const Text('登录'),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 48),
                     ],
                   ),
-                  Expanded(flex: 5, child: Container()),
-                ],
+                ),
               ),
             ),
           );

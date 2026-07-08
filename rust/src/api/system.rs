@@ -41,11 +41,11 @@ pub fn desktop_root() -> Result<String> {
         Ok(join_paths(vec![home.as_str(), ".opensource", "wild"]))
     }
     #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
-    panic!("未支持的平台")
+    panic!("鏈敮鎸佺殑骞冲彴")
 }
 
 pub async fn init(root: String) -> Result<()> {
-    // 调用全局初始化函数
+    // 璋冪敤鍏ㄥ眬鍒濆鍖栧嚱鏁?
     crate::init(root).await?;
     Ok(())
 }

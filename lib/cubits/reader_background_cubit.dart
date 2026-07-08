@@ -4,7 +4,7 @@ import 'package:image_picker/image_picker.dart';
 
 class ReaderBackgroundCubit extends Cubit<ReaderBackgroundState> {
   String? _rootPath;
-  
+
   ReaderBackgroundCubit() : super(const ReaderBackgroundState());
 
   Future<void> init(String root) async {
@@ -14,34 +14,36 @@ class ReaderBackgroundCubit extends Cubit<ReaderBackgroundState> {
 
   Future<void> _checkBackgroundImages() async {
     if (_rootPath == null) return;
-    
+
     final lightPath = '$_rootPath/light_reader_background.png';
     final darkPath = '$_rootPath/dark_reader_background.png';
-    
+
     final lightExists = await File(lightPath).exists();
     final darkExists = await File(darkPath).exists();
-    
-    emit(ReaderBackgroundState(
-      lightBackgroundExists: lightExists,
-      darkBackgroundExists: darkExists,
-    ));
+
+    emit(
+      ReaderBackgroundState(
+        lightBackgroundExists: lightExists,
+        darkBackgroundExists: darkExists,
+      ),
+    );
   }
 
   Future<void> updateLightBackground() async {
     if (_rootPath == null) return;
-    
+
     try {
       final ImagePicker picker = ImagePicker();
       final XFile? image = await picker.pickImage(
         source: ImageSource.gallery,
         imageQuality: 80,
       );
-      
+
       if (image != null) {
         final bytes = await image.readAsBytes();
         final file = File('$_rootPath/light_reader_background.png');
         await file.writeAsBytes(bytes);
-        
+
         emit(state.copyWith(lightBackgroundExists: true));
       }
     } catch (e) {
@@ -52,19 +54,19 @@ class ReaderBackgroundCubit extends Cubit<ReaderBackgroundState> {
 
   Future<void> updateDarkBackground() async {
     if (_rootPath == null) return;
-    
+
     try {
       final ImagePicker picker = ImagePicker();
       final XFile? image = await picker.pickImage(
         source: ImageSource.gallery,
         imageQuality: 80,
       );
-      
+
       if (image != null) {
         final bytes = await image.readAsBytes();
         final file = File('$_rootPath/dark_reader_background.png');
         await file.writeAsBytes(bytes);
-        
+
         emit(state.copyWith(darkBackgroundExists: true));
       }
     } catch (e) {
@@ -75,13 +77,13 @@ class ReaderBackgroundCubit extends Cubit<ReaderBackgroundState> {
 
   Future<void> deleteLightBackground() async {
     if (_rootPath == null) return;
-    
+
     try {
       final file = File('$_rootPath/light_reader_background.png');
       if (await file.exists()) {
         await file.delete();
       }
-      
+
       emit(state.copyWith(lightBackgroundExists: false));
     } catch (e) {
       // 处理错误
@@ -91,13 +93,13 @@ class ReaderBackgroundCubit extends Cubit<ReaderBackgroundState> {
 
   Future<void> deleteDarkBackground() async {
     if (_rootPath == null) return;
-    
+
     try {
       final file = File('$_rootPath/dark_reader_background.png');
       if (await file.exists()) {
         await file.delete();
       }
-      
+
       emit(state.copyWith(darkBackgroundExists: false));
     } catch (e) {
       // 处理错误
@@ -118,6 +120,12 @@ class ReaderBackgroundCubit extends Cubit<ReaderBackgroundState> {
   Future<void> updateOpacity(double opacity) async {
     emit(state.copyWith(opacity: opacity));
   }
+
+  Future<void> resetToDefault() async {
+    await deleteLightBackground();
+    await deleteDarkBackground();
+    emit(const ReaderBackgroundState());
+  }
 }
 
 class ReaderBackgroundState {
@@ -137,7 +145,8 @@ class ReaderBackgroundState {
     double? opacity,
   }) {
     return ReaderBackgroundState(
-      lightBackgroundExists: lightBackgroundExists ?? this.lightBackgroundExists,
+      lightBackgroundExists:
+          lightBackgroundExists ?? this.lightBackgroundExists,
       darkBackgroundExists: darkBackgroundExists ?? this.darkBackgroundExists,
       opacity: opacity ?? this.opacity,
     );
@@ -154,7 +163,7 @@ class ReaderBackgroundState {
 
   @override
   int get hashCode =>
-      lightBackgroundExists.hashCode ^ 
-      darkBackgroundExists.hashCode ^ 
+      lightBackgroundExists.hashCode ^
+      darkBackgroundExists.hashCode ^
       opacity.hashCode;
 }

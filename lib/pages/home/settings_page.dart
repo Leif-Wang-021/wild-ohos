@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:wild/utils/app_platform.dart';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -74,7 +75,7 @@ class SettingsPage extends StatelessWidget {
                       },
                     ),
                     const SizedBox(height: 16),
-                    if (Platform.isAndroid || Platform.isIOS) ...[
+                    if (Platform.isAndroid || Platform.isIOS || AppPlatform.isOHOS) ...[
                       screenUpOnReadingSetting(),
                       screenUpOnScrollSetting(),
                       const SizedBox(height: 16),

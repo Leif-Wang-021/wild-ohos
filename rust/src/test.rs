@@ -172,5 +172,3 @@ async fn test_reviews() -> anyhow::Result<()> {
     println!("response : {}", serde_json::to_string_pretty(&response)?);
     Ok(())
 }
-
-1

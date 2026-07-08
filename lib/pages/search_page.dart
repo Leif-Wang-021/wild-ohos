@@ -1,17 +1,15 @@
 import 'package:flutter/material.dart';
+
 import '../src/rust/api/wenku8.dart';
 import '../src/rust/wenku8/models.dart';
 import '../widgets/cached_image.dart';
+import '../widgets/cf_search_loader.dart';
 
 class SearchPage extends StatefulWidget {
   final String? initialSearchType;
   final String? initialSearchKey;
 
-  const SearchPage({
-    super.key,
-    this.initialSearchType,
-    this.initialSearchKey,
-  });
+  const SearchPage({super.key, this.initialSearchType, this.initialSearchKey});
 
   @override
   State<SearchPage> createState() => _SearchPageState();
@@ -21,8 +19,12 @@ class _SearchPageState extends State<SearchPage> {
   final _searchController = TextEditingController();
   late String _searchType;
   PageStatsNovelCover? _searchResults;
-  bool _isLoading = false;
   List<SearchHistory>? _searchHistories;
+  bool _isLoading = false;
+  bool _webViewSearchActive = false;
+  String _webViewApiHost = 'https://www.wenku8.net';
+  int _webViewSearchPage = 1;
+  bool _webViewSearchRefresh = true;
   String? _errorMessage;
 
   @override
@@ -45,12 +47,9 @@ class _SearchPageState extends State<SearchPage> {
   Future<void> _loadSearchHistories() async {
     try {
       final histories = await searchHistories();
-      setState(() {
-        _searchHistories = histories;
-      });
-    } catch (e) {
-      // 忽略加载历史记录失败
-    }
+      if (!mounted) return;
+      setState(() => _searchHistories = histories);
+    } catch (_) {}
   }
 
   Future<void> _search({bool refresh = false}) async {
@@ -63,8 +62,6 @@ class _SearchPageState extends State<SearchPage> {
     }
     if (_isLoading) return;
 
-    print('开始搜索: type=${_searchType}, key=${_searchController.text}, refresh=$refresh');
-
     setState(() {
       _isLoading = true;
       if (refresh) {
@@ -73,43 +70,63 @@ class _SearchPageState extends State<SearchPage> {
       }
     });
 
+    final page = refresh ? 1 : (_searchResults?.currentPage ?? 0) + 1;
     try {
       final results = await search(
         searchType: _searchType,
         searchKey: _searchController.text,
-        page: refresh ? 1 : (_searchResults?.currentPage ?? 0) + 1,
+        page: page,
       );
-
-      print('搜索成功: 找到 ${results.records.length} 条结果');
-
       if (!mounted) return;
-
-      setState(() {
-        if (refresh) {
-          _searchResults = results;
-        } else {
-          _searchResults = PageStatsNovelCover(
-            currentPage: results.currentPage,
-            maxPage: results.maxPage,
-            records: [..._searchResults!.records, ...results.records],
-          );
-        }
-        _isLoading = false;
-        _errorMessage = null;
-      });
-
-      // 刷新搜索历史
+      _applySearchResults(results, refresh: refresh);
       _loadSearchHistories();
     } catch (e) {
-      print('搜索失败: $e');
       if (!mounted) return;
-      
+      final msg = e.toString();
+      if (msg.contains('403') ||
+          msg.contains('Forbidden') ||
+          msg.contains('Cloudflare')) {
+        final apiHost = await getApiHost();
+        if (!mounted) return;
+        setState(() {
+          _webViewApiHost =
+              apiHost.isEmpty ? 'https://www.wenku8.net' : apiHost;
+          _webViewSearchPage = page;
+          _webViewSearchRefresh = refresh;
+          _webViewSearchActive = true;
+          _isLoading = true;
+          _errorMessage = null;
+          if (refresh) _searchResults = null;
+        });
+        return;
+      }
+
       setState(() {
         _isLoading = false;
-        _errorMessage = e.toString();
-        _searchResults = null;  // 确保清除搜索结果
+        _errorMessage = msg;
+        _searchResults = null;
       });
     }
+  }
+
+  void _applySearchResults(
+    PageStatsNovelCover results, {
+    required bool refresh,
+  }) {
+    setState(() {
+      if (refresh || _searchResults == null) {
+        _searchResults = results;
+      } else {
+        _searchResults = PageStatsNovelCover(
+          currentPage: results.currentPage,
+          maxPage: results.maxPage,
+          records: [..._searchResults!.records, ...results.records],
+        );
+      }
+      _isLoading = false;
+      _webViewSearchActive = false;
+      _errorMessage = null;
+    });
   }
 
   @override
@@ -125,7 +142,7 @@ class _SearchPageState extends State<SearchPage> {
               ButtonSegment(value: 'author', label: Text('作者')),
             ],
             selected: {_searchType},
-            onSelectionChanged: (Set<String> selection) {
+            onSelectionChanged: (selection) {
               setState(() {
                 _searchType = selection.first;
                 _searchController.clear();
@@ -137,154 +154,176 @@ class _SearchPageState extends State<SearchPage> {
           const SizedBox(width: 8),
         ],
       ),
-      body: Column(
+      body: Stack(
         children: [
-          // 搜索框
-          Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: TextField(
-              controller: _searchController,
-              textInputAction: TextInputAction.search,
-              decoration: InputDecoration(
-                hintText: '搜索小说或作者',
-                prefixIcon: const Icon(Icons.search),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                contentPadding: const EdgeInsets.symmetric(horizontal: 16),
-              ),
-              onSubmitted: (value) {
-                if (value.isNotEmpty) {
-                  _search(refresh: true);
-                }
-              },
-            ),
-          ),
-          // 搜索结果或搜索历史
-          if (_searchController.text.isEmpty && _searchHistories != null && _searchHistories!.isNotEmpty)
-            Expanded(
-              child: ListView.builder(
+          Column(
+            children: [
+              Padding(
                 padding: const EdgeInsets.all(16),
-                itemCount: _searchHistories!.length,
-                itemBuilder: (context, index) {
-                  final history = _searchHistories![index];
-                  return ListTile(
-                    leading: Icon(
-                      history.searchType == 'articlename'
-                          ? Icons.book
-                          : Icons.person,
-                      color: history.searchType == 'articlename'
-                          ? Colors.blue
-                          : Colors.green,
+                child: TextField(
+                  controller: _searchController,
+                  textInputAction: TextInputAction.search,
+                  decoration: InputDecoration(
+                    hintText: '搜索小说或作者',
+                    prefixIcon: const Icon(Icons.search),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
                     ),
-                    title: Text(
-                      history.searchKey,
-                      style: TextStyle(
-                        color: history.searchType == 'articlename'
-                            ? Colors.blue
-                            : Colors.green,
-                      ),
-                    ),
-                    subtitle: Text(
-                      history.searchType == 'articlename' ? '书名搜索' : '作者搜索',
-                      style: const TextStyle(fontSize: 12),
-                    ),
-                    onTap: () {
-                      _searchController.text = history.searchKey;
-                      setState(() {
-                        _searchType = history.searchType;
-                      });
-                      _search(refresh: true);
-                    },
-                  );
-                },
-              ),
-            )
-          // 错误状态
-          else if (_errorMessage != null)
-            Expanded(
-              child: RefreshIndicator(
-                onRefresh: () => _search(refresh: true),
-                child: ListView(
-                  padding: const EdgeInsets.all(16),
-                  children: [
-                    SizedBox(
-                      height: MediaQuery.of(context).size.height - 100,
-                      child: Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.start,
-                          children: [
-                            const Icon(Icons.error_outline, size: 48, color: Colors.grey),
-                            const SizedBox(height: 16),
-                            Text(
-                              '搜索失败 (下拉刷新)',
-                              style: Theme.of(context).textTheme.titleMedium,
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              _errorMessage!,
-                              style: Theme.of(context).textTheme.bodyMedium,
-                              textAlign: TextAlign.start,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            )
-          // 搜索结果
-          else if (_searchResults != null)
-            Expanded(
-              child: NotificationListener<ScrollNotification>(
-                onNotification: (notification) {
-                  if (notification is ScrollEndNotification &&
-                      notification.metrics.pixels >=
-                          notification.metrics.maxScrollExtent - 200 &&
-                      !_isLoading &&
-                      _searchResults!.currentPage < _searchResults!.maxPage) {
-                    _search();
-                  }
-                  return true;
-                },
-                child: GridView.builder(
-                  padding: const EdgeInsets.all(8),
-                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 3,
-                    childAspectRatio: 207 / 307,
-                    crossAxisSpacing: 8,
-                    mainAxisSpacing: 8,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16),
                   ),
-                  itemCount: _searchResults!.records.length +
-                      (_searchResults!.currentPage < _searchResults!.maxPage
-                          ? 1
-                          : 0),
-                  itemBuilder: (context, index) {
-                    if (index >= _searchResults!.records.length) {
-                      return const Center(
-                        child: Padding(
-                          padding: EdgeInsets.all(16.0),
-                          child: CircularProgressIndicator(),
-                        ),
-                      );
-                    }
-                    final novel = _searchResults!.records[index];
-                    return _NovelCoverCard(novel: novel);
+                  onSubmitted: (value) {
+                    if (value.isNotEmpty) _search(refresh: true);
                   },
                 ),
               ),
-            )
-          // 空状态
-          else
-            const Expanded(
-              child: Center(
-                child: Text('输入关键词开始搜索'),
+              Expanded(child: _buildBodyContent(context)),
+            ],
+          ),
+          if (_webViewSearchActive)
+            Positioned(
+              right: 0,
+              bottom: 0,
+              width: 1,
+              height: 1,
+              child: IgnorePointer(
+                child: Opacity(
+                  opacity: 0.01,
+                  child: CfSearchLoader(
+                    apiHost: _webViewApiHost,
+                    searchType: _searchType,
+                    searchKey: _searchController.text,
+                    page: _webViewSearchPage,
+                    onSuccess: (result) {
+                      if (!mounted) return;
+                      _applySearchResults(
+                        result,
+                        refresh: _webViewSearchRefresh,
+                      );
+                    },
+                    onError: (error) {
+                      if (!mounted) return;
+                      setState(() {
+                        _webViewSearchActive = false;
+                        _isLoading = false;
+                        _errorMessage = error;
+                      });
+                    },
+                  ),
+                ),
               ),
             ),
         ],
       ),
     );
+  }
+
+  Widget _buildBodyContent(BuildContext context) {
+    if (_searchController.text.isEmpty &&
+        _searchHistories != null &&
+        _searchHistories!.isNotEmpty) {
+      return ListView.builder(
+        padding: const EdgeInsets.all(16),
+        itemCount: _searchHistories!.length,
+        itemBuilder: (context, index) {
+          final history = _searchHistories![index];
+          final byName = history.searchType == 'articlename';
+          return ListTile(
+            leading: Icon(
+              byName ? Icons.book : Icons.person,
+              color: byName ? Colors.blue : Colors.green,
+            ),
+            title: Text(
+              history.searchKey,
+              style: TextStyle(color: byName ? Colors.blue : Colors.green),
+            ),
+            subtitle: Text(
+              byName ? '书名搜索' : '作者搜索',
+              style: const TextStyle(fontSize: 12),
+            ),
+            onTap: () {
+              _searchController.text = history.searchKey;
+              setState(() => _searchType = history.searchType);
+              _search(refresh: true);
+            },
+          );
+        },
+      );
+    }
+
+    if (_errorMessage != null) {
+      return RefreshIndicator(
+        onRefresh: () => _search(refresh: true),
+        child: ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            SizedBox(
+              height: MediaQuery.of(context).size.height - 180,
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.start,
+                children: [
+                  const Icon(Icons.error_outline, size: 48, color: Colors.grey),
+                  const SizedBox(height: 16),
+                  Text(
+                    '搜索失败 (下拉刷新)',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    _errorMessage!,
+                    style: Theme.of(context).textTheme.bodyMedium,
+                    textAlign: TextAlign.start,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (_searchResults != null) {
+      return NotificationListener<ScrollNotification>(
+        onNotification: (notification) {
+          if (notification is ScrollEndNotification &&
+              notification.metrics.pixels >=
+                  notification.metrics.maxScrollExtent - 200 &&
+              !_isLoading &&
+              _searchResults!.currentPage < _searchResults!.maxPage) {
+            _search();
+          }
+          return true;
+        },
+        child: GridView.builder(
+          padding: const EdgeInsets.all(8),
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 3,
+            childAspectRatio: 207 / 307,
+            crossAxisSpacing: 8,
+            mainAxisSpacing: 8,
+          ),
+          itemCount:
+              _searchResults!.records.length +
+              (_searchResults!.currentPage < _searchResults!.maxPage ? 1 : 0),
+          itemBuilder: (context, index) {
+            if (index >= _searchResults!.records.length) {
+              return const Center(
+                child: Padding(
+                  padding: EdgeInsets.all(16),
+                  child: CircularProgressIndicator(),
+                ),
+              );
+            }
+            return _NovelCoverCard(novel: _searchResults!.records[index]);
+          },
+        ),
+      );
+    }
+
+    if (_isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    return const Center(child: Text('输入关键词开始搜索'));
   }
 }
 
@@ -295,36 +334,33 @@ class _NovelCoverCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    var card = Card(
-      clipBehavior: Clip.antiAlias,
-      elevation: .5,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(
-            child: CachedImage(
-              url: novel.img,
-              fit: BoxFit.cover,
+    return GestureDetector(
+      onTap:
+          () =>
+              Navigator.pushNamed(context, '/novel/info', arguments: novel.aid),
+      child: Card(
+        clipBehavior: Clip.antiAlias,
+        elevation: .5,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(child: CachedImage(url: novel.img, fit: BoxFit.cover)),
+            Padding(
+              padding: const EdgeInsets.all(4),
+              child: Text(
+                novel.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
             ),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(4.0),
-            child: Text(
-              novel.title,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
-    return GestureDetector(
-      onTap: () {
-        Navigator.pushNamed(context, '/novel/info', arguments: novel.aid);
-      },
-      child: card,
-    );
   }
-} 
+}

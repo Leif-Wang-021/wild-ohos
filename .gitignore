@@ -33,6 +33,25 @@ migrate_working_dir/
 .pub/
 /build/
 
+# HarmonyOS / DevEco / Hvigor related
+.hvigor/
+**/.hvigor/
+**/.appanalyzer/
+**/oh_modules/
+**/.ohpm/
+ohos/**/build/
+*.hap
+*.hsp
+local.properties
+
+# Signing materials should stay local
+*.cer
+*.p7b
+*.p12
+
+# Rust build output
+rust/target/
+
 # Symbolication related
 app.*.symbols
 
