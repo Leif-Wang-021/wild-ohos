@@ -41,10 +41,11 @@ class VersionInfo extends Equatable {
 
 // Cubit
 class UpdateCubit extends Cubit<UpdateState> {
-  static const String _owner = 'niuhuan';
-  static const String _repo = 'wild';
+  static const String _owner = 'Leif-Wang-021';
+  static const String _repo = 'wild-ohos';
   static const String _apiUrl =
       'https://api.github.com/repos/$_owner/$_repo/releases/latest';
+  static const int _ohosReleaseRevision = 1;
 
   UpdateCubit() : super(const UpdateState());
 
@@ -78,19 +79,14 @@ class UpdateCubit extends Cubit<UpdateState> {
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         final latestVersion = data['tag_name'] as String;
-        final currentVersion = 'v${AppInfo.version}';
+        final currentVersion = 'v${AppInfo.version}-ohos.$_ohosReleaseRevision';
 
         if (kDebugMode) {
           print('Current version: $currentVersion');
           print('Latest version: $latestVersion');
         }
 
-        // 移除 'v' 前缀后比较版本号
-        if (_compareVersions(
-              latestVersion.replaceFirst('v', ''),
-              currentVersion.replaceFirst('v', ''),
-            ) >
-            0) {
+        if (_compareVersions(latestVersion, currentVersion) > 0) {
           if (kDebugMode) {
             print('New version available: $latestVersion');
           }
@@ -123,14 +119,27 @@ class UpdateCubit extends Cubit<UpdateState> {
 
   // 比较版本号，返回 1 表示有新版本，0 表示相同，-1 表示当前版本更新
   int _compareVersions(String version1, String version2) {
-    final v1Parts = version1.split('.').map(int.parse).toList();
-    final v2Parts = version2.split('.').map(int.parse).toList();
+    final v1Parts = _versionParts(version1);
+    final v2Parts = _versionParts(version2);
 
-    for (var i = 0; i < v1Parts.length && i < v2Parts.length; i++) {
-      if (v1Parts[i] > v2Parts[i]) return 1;
-      if (v1Parts[i] < v2Parts[i]) return -1;
+    final maxLength =
+        v1Parts.length > v2Parts.length ? v1Parts.length : v2Parts.length;
+    for (var i = 0; i < maxLength; i++) {
+      final v1 = i < v1Parts.length ? v1Parts[i] : 0;
+      final v2 = i < v2Parts.length ? v2Parts[i] : 0;
+      if (v1 > v2) return 1;
+      if (v1 < v2) return -1;
     }
 
-    return v1Parts.length.compareTo(v2Parts.length);
+    return 0;
+  }
+
+  List<int> _versionParts(String version) {
+    return version
+        .replaceFirst(RegExp(r'^v'), '')
+        .split(RegExp(r'[^0-9]+'))
+        .where((part) => part.isNotEmpty)
+        .map(int.parse)
+        .toList();
   }
 }

@@ -28,64 +28,67 @@ class _UpdateCheckerState extends State<UpdateChecker> {
   void _showUpdateDialog(VersionInfo updateInfo) {
     _overlayEntry?.remove();
     _overlayEntry = OverlayEntry(
-      builder: (context) => Material(
-        color: Colors.black54,
-        child: Center(
-          child: Card(
-            margin: const EdgeInsets.symmetric(horizontal: 32),
-            child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    '发现新版本',
-                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+      builder:
+          (context) => Material(
+            color: Colors.black54,
+            child: Center(
+              child: Card(
+                margin: const EdgeInsets.symmetric(horizontal: 32),
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '发现新版本',
+                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
                           fontWeight: FontWeight.bold,
                         ),
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    '最新版本：${updateInfo.version}',
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
-                  const SizedBox(height: 8),
-                  ConstrainedBox(
-                    constraints: BoxConstraints(
-                      maxHeight: MediaQuery.of(context).size.height * 0.4,
-                    ),
-                    child: SingleChildScrollView(
-                      child: Text(
-                    updateInfo.body,
-                    style: Theme.of(context).textTheme.bodyMedium,
                       ),
-                    ),
+                      const SizedBox(height: 16),
+                      Text(
+                        '最新版本：${updateInfo.version}',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: 8),
+                      ConstrainedBox(
+                        constraints: BoxConstraints(
+                          maxHeight: MediaQuery.of(context).size.height * 0.4,
+                        ),
+                        child: SingleChildScrollView(
+                          child: Text(
+                            updateInfo.body,
+                            style: Theme.of(context).textTheme.bodyMedium,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: TextButton(
+                          onPressed: () {
+                            _overlayEntry?.remove();
+                            _overlayEntry = null;
+                          },
+                          child: const Text('我知道了'),
+                        ),
+                      ),
+                    ],
                   ),
-                  const SizedBox(height: 24),
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: TextButton(
-                      onPressed: () {
-                        _overlayEntry?.remove();
-                        _overlayEntry = null;
-                      },
-                      child: const Text('我知道了'),
-                    ),
-                  ),
-                ],
+                ),
               ),
             ),
           ),
-        ),
-      ),
     );
 
     Overlay.of(context).insert(_overlayEntry!);
   }
 
   Future<void> _checkUpdate() async {
-    final updateInfo = await context.read<UpdateCubit>().checkUpdate(force: widget.forceCheck);
+    final updateInfo = await context.read<UpdateCubit>().checkUpdate(
+      force: widget.forceCheck,
+    );
     if (updateInfo != null && mounted) {
       _showUpdateDialog(updateInfo);
     }
@@ -102,4 +105,4 @@ class _UpdateCheckerState extends State<UpdateChecker> {
 
   @override
   Widget build(BuildContext context) => widget.child;
-} 
+}

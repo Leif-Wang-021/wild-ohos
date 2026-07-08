@@ -11,8 +11,9 @@ class AboutPage extends StatelessWidget {
   static const _upstreamSourceUrl = 'https://github.com/niuhuan/wild';
   static const _licenseUrl =
       'https://github.com/niuhuan/wild/blob/master/LICENSE';
-  static const _portSourceUrl = '';
-  static const _portIssuesUrl = '';
+  static const _portSourceUrl = 'https://github.com/Leif-Wang-021/wild-ohos';
+  static const _portIssuesUrl =
+      'https://github.com/Leif-Wang-021/wild-ohos/issues';
 
   String get _displayVersion =>
       '${AppInfo.version}-ohos+${AppInfo.buildNumber}';
