@@ -131,7 +131,7 @@ cargo build --target aarch64-unknown-linux-ohos --release
 ## 项目来源
 
 - 上游 Source Code：[https://github.com/niuhuan/wild](https://github.com/niuhuan/wild)
-- 鸿蒙版 Source Code：待上传 GitHub 后填写
+- 鸿蒙版 Source Code：[https://github.com/Leif-Wang-021/wild-ohos](https://github.com/Leif-Wang-021/wild-ohos)
 - 上游协议：GNU General Public License v3.0 (GPLv3)
 
 ## 责任声明

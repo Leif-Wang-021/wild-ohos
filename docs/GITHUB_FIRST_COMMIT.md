@@ -94,7 +94,7 @@ Initial HarmonyOS port
 
 ## 上传后还要补的内容
 
-- 在 `README.md` 的“鸿蒙版 Source Code”处填入新仓库地址。
+- `README.md` 的“鸿蒙版 Source Code”已填写为当前仓库地址。
 - 在 GitHub About 填写推荐文案。
 - 确认 Release 附件只上传 release HAP，不上传签名证书或本地缓存。
 - 如果提供安装包，Release 描述中说明仅支持 HarmonyOS / OpenHarmony arm64 真机。
