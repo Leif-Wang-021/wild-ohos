@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../cubits/articlelist_cubit.dart';
 import '../../src/rust/wenku8/models.dart';
 import '../../widgets/cached_image.dart';
+import '../../widgets/novel_grid.dart';
 import 'package:wild/widgets/novel_card.dart';
 
 class ArticlelistPage extends StatefulWidget {
@@ -63,9 +64,9 @@ class _ArticlelistPageState extends State<ArticlelistPage> {
                 : GridView.builder(
                     controller: _scrollController,
                     padding: const EdgeInsets.all(8),
-                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: 3,
-                      childAspectRatio: 0.7,
+                    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: novelGridColumns(context),
+                      childAspectRatio: kNovelCardAspectRatio,
                       crossAxisSpacing: 8,
                       mainAxisSpacing: 8,
                     ),

@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:wild/services/cover_cache.dart';
 import 'package:wild/src/rust/api/wenku8.dart';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
@@ -28,8 +30,25 @@ class CachedImageProvider extends ImageProvider<CachedImageProvider> {
 
   Future<ui.Codec> _loadAsync(CachedImageProvider key) async {
     assert(key == this);
-    final path = await downloadImage(url: url);
-    return ui.instantiateImageCodec(await File(path).readAsBytes());
+    // 离线/未缓存时 Rust 端会失败，先尝试 Dart 侧本地封面缓存。
+    final local = CoverCache.instance.get(url);
+    if (local != null) {
+      return ui.instantiateImageCodec(await local.readAsBytes());
+    }
+    try {
+      final path = await downloadImage(url: url);
+      final bytes = await File(path).readAsBytes();
+      // 抓取成功后写入本地封面缓存，供日后离线使用。
+      unawaited(CoverCache.instance.put(url, bytes));
+      return ui.instantiateImageCodec(bytes);
+    } catch (e) {
+      // 联网失败且无本地缓存：回退再查一次（可能刚被写入）。
+      final fallback = CoverCache.instance.get(url);
+      if (fallback != null) {
+        return ui.instantiateImageCodec(await fallback.readAsBytes());
+      }
+      rethrow;
+    }
   }
 
   @override

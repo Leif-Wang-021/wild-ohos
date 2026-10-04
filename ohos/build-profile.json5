@@ -1,53 +1,53 @@
-﻿{
-  "app": {
-    "products": [
+{
+  app: {
+    products: [
       {
-        "name": "default",
-        "signingConfig": "default",
-        "compatibleSdkVersion": "5.1.0(18)",
-        "runtimeOS": "HarmonyOS",
-        "targetSdkVersion": "6.1.0(23)"
-      }
+        name: 'default',
+        signingConfig: 'default',
+        compatibleSdkVersion: '5.1.0(18)',
+        runtimeOS: 'HarmonyOS',
+        targetSdkVersion: '6.1.0(23)',
+      },
     ],
-    "buildModeSet": [
+    buildModeSet: [
       {
-        "name": "debug"
+        name: 'debug',
       },
       {
-        "name": "profile"
+        name: 'profile',
       },
       {
-        "name": "release"
-      }
+        name: 'release',
+      },
     ],
-    "signingConfigs": [
+    signingConfigs: [
       {
-        "name": "default",
-        "type": "HarmonyOS",
-        "material": {
-          "certpath": "C:\\Users\\26981\\.ohos\\config\\default_ohos_ikyPZkyy4s3lQl2zH0UwLfnJZfG3dTrgHm0utC3dvtw=.cer",
-          "keyAlias": "debugKey",
-          "keyPassword": "0000001B6EE58A8EA66A1B2F89EA38C36EC0717FE410F666FF0EE3F7555A3C0EE23DC412C8EBFA13717DAA",
-          "profile": "C:\\Users\\26981\\.ohos\\config\\default_ohos_ikyPZkyy4s3lQl2zH0UwLfnJZfG3dTrgHm0utC3dvtw=.p7b",
-          "signAlg": "SHA256withECDSA",
-          "storeFile": "C:\\Users\\26981\\.ohos\\config\\default_ohos_ikyPZkyy4s3lQl2zH0UwLfnJZfG3dTrgHm0utC3dvtw=.p12",
-          "storePassword": "0000001B016E8F526E2ABEF5CCEECAB63FDE8D9D8D2336169B39AF3B91BF829FAF9577D37BABF5539051D7"
-        }
-      }
-    ]
+        name: 'default',
+        type: 'HarmonyOS',
+        material: {
+          certpath: 'C:\\Users\\26981\\.ohos\\config\\default_ohos_86p2mc2CDeNbTXepnPtLod9njkGSZJlXqOuiOIc=.cer',
+          keyAlias: 'debugKey',
+          keyPassword: '0000001bc4403b2f34f9092cbe503f12ac20bae0be283cd0fb5ddd516bc0ae7bf02d08f71820be25bd4d65',
+          profile: 'C:\\Users\\26981\\.ohos\\config\\default_ohos_86p2mc2CDeNbTXepnPtLod9njkGSZJlXqOuiOIc=.p7b',
+          signAlg: 'SHA256withECDSA',
+          storeFile: 'C:\\Users\\26981\\.ohos\\config\\default_ohos_86p2mc2CDeNbTXepnPtLod9njkGSZJlXqOuiOIc=.p12',
+          storePassword: '0000001bc4403b2f34f9092cbe503f12ac20bae0be283cd0fb5ddd516bc0ae7bf02d08f71820be25bd4d65',
+        },
+      },
+    ],
   },
-  "modules": [
+  modules: [
     {
-      "name": "entry",
-      "srcPath": "./entry",
-      "targets": [
+      name: 'entry',
+      srcPath: './entry',
+      targets: [
         {
-          "name": "default",
-          "applyToProducts": [
-            "default"
-          ]
-        }
-      ]
-    }
-  ]
+          name: 'default',
+          applyToProducts: [
+            'default',
+          ],
+        },
+      ],
+    },
+  ],
 }

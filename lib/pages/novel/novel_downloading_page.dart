@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:wild/services/download_manager.dart';
 import 'package:wild/src/rust/api/wenku8.dart' as w8;
 import 'package:wild/src/rust/wenku8/models.dart';
+import 'package:wild/utils/log.dart';
 import 'package:wild/widgets/cached_image.dart';
 
 class NovelDownloadingPage extends StatefulWidget {
@@ -78,13 +80,43 @@ class _NovelDownloadingPageState extends State<NovelDownloadingPage> {
     }
 
     try {
-      await w8.downloadNovel(
-        aid: widget.novelId,
-        cidList: _selectedChapters.toList(),
+      // 通过 Dart 侧下载管理器执行（绕过 Cloudflare，写入沙箱）。
+      final refs = <DownloadChapterRef>[];
+      for (final volume in widget.volumes) {
+        for (final chapter in volume.chapters) {
+          if (_selectedChapters.contains(chapter.cid)) {
+            refs.add(
+              DownloadChapterRef(
+                aid: chapter.aid,
+                cid: chapter.cid,
+                title: chapter.title,
+                volumeId: volume.id,
+                volumeTitle: volume.title,
+              ),
+            );
+          }
+        }
+      }
+      if (refs.isEmpty) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('请选择要下载的章节')),
+        );
+        return;
+      }
+
+      NovelDownloadManager.instance.start(
+        novelId: widget.novelId,
+        novelName: widget.novelInfo.title,
+        coverUrl: widget.novelInfo.imgUrl,
+        chapters: refs,
+        info: widget.novelInfo,
+        volumes: widget.volumes,
       );
+      Log.info('DownloadingPage', 'queued ${refs.length} chapters');
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('开始下载')),
+        SnackBar(content: Text('已开始下载 ${refs.length} 个章节')),
       );
       Navigator.pop(context);
     } catch (e) {

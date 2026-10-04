@@ -3,7 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:wild/methods.dart';
 import 'package:wild/pages/update_cubit.dart';
-import 'package:wild/utils/app_info.dart';
+import 'package:wild/utils/app_version.dart';
 
 class AboutPage extends StatelessWidget {
   const AboutPage({super.key});
@@ -15,8 +15,7 @@ class AboutPage extends StatelessWidget {
   static const _portIssuesUrl =
       'https://github.com/Leif-Wang-021/wild-ohos/issues';
 
-  String get _displayVersion =>
-      '${AppInfo.version}-ohos+${AppInfo.buildNumber}';
+  String get _displayVersion => AppVersion.display;
 
   Future<void> _launchUrl(BuildContext context, String url) async {
     if (url.isEmpty) {

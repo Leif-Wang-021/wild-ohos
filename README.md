@@ -97,7 +97,7 @@ Windows / PowerShell 示例：
 $env:DEVECO_SDK_HOME = "D:\Program Files\Huawei\DevEco Studio\sdk"
 $env:HOS_SDK_HOME = "D:\Program Files\Huawei\DevEco Studio\sdk"
 $env:JAVA_HOME = "D:\Program Files\Huawei\DevEco Studio\jbr"
-$env:PATH = "D:\flutter_ohos\bin;D:\Program Files\Huawei\DevEco Studio\tools\ohpm\bin;D:\Program Files\Huawei\DevEco Studio\tools\hvigor\bin;D:\Program Files\Huawei\DevEco Studio\tools\node;D:\Program Files\Huawei\DevEco Studio\sdk\default\openharmony\toolchains;D:\Program Files\Huawei\DevEco Studio\jbr\bin;$env:PATH"
+$env:PATH = "F:\flutter_ohos\bin;D:\Program Files\Huawei\DevEco Studio\tools\ohpm\bin;D:\Program Files\Huawei\DevEco Studio\tools\hvigor\bin;D:\Program Files\Huawei\DevEco Studio\tools\node;D:\Program Files\Huawei\DevEco Studio\sdk\default\openharmony\toolchains;D:\Program Files\Huawei\DevEco Studio\jbr\bin;$env:PATH"
 
 flutter build hap --release --target-platform ohos-arm64
 ```

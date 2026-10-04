@@ -4,7 +4,12 @@ import 'package:wild/cubits/api_host_cubit.dart';
 import 'package:wild/pages/home/bookshelf_cubit.dart';
 import 'package:wild/widgets/cf_action_loader.dart';
 import 'package:wild/widgets/cf_bookshelf_loader.dart';
+import 'package:wild/pages/novel/reader_page.dart';
+import 'package:wild/services/download_manager.dart';
+import 'package:wild/services/offline_library.dart';
+import 'package:wild/widgets/cached_image.dart';
 import 'package:wild/widgets/novel_card.dart';
+import 'package:wild/widgets/novel_grid.dart';
 import 'package:wild/src/rust/wenku8/models.dart';
 
 class BookshelfPage extends StatefulWidget {
@@ -125,6 +130,10 @@ class _BookshelfPageState extends State<BookshelfPage> {
                     style: Theme.of(context).textTheme.bodyMedium,
                     textAlign: TextAlign.start,
                   ),
+                  const SizedBox(height: 24),
+                  const Text('已下载内容（可离线阅读）'),
+                  const SizedBox(height: 8),
+                  _OfflineDownloadsList(),
                 ],
               ),
             ],
@@ -224,9 +233,9 @@ class _BookshelfPageState extends State<BookshelfPage> {
                 onRefresh: () => context.read<BookshelfCubit>().loadBookcases(),
                 child: GridView.builder(
                   padding: const EdgeInsets.all(8),
-                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 3,
-                    childAspectRatio: 0.7,
+                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: novelGridColumns(context),
+                    childAspectRatio: kNovelCardAspectRatio,
                     crossAxisSpacing: 8,
                     mainAxisSpacing: 8,
                   ),
@@ -379,6 +388,102 @@ class _BookshelfPageState extends State<BookshelfPage> {
               ),
             ],
           ),
+    );
+  }
+}
+
+/// 离线可用列表：从本地下载目录读取已下载小说，供断网时阅读。
+class _OfflineDownloadsList extends StatefulWidget {
+  const _OfflineDownloadsList();
+
+  @override
+  State<_OfflineDownloadsList> createState() => _OfflineDownloadsListState();
+}
+
+class _OfflineDownloadsListState extends State<_OfflineDownloadsList> {
+  List<OfflineNovel> _items = [];
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final ids = await NovelDownloadManager.instance.listDownloadedNovelIds();
+    final novels = <OfflineNovel>[];
+    for (final id in ids) {
+      final n = await OfflineLibrary.instance.load(id);
+      if (n != null) novels.add(n);
+    }
+    if (!mounted) return;
+    setState(() {
+      _items = novels;
+      _loading = false;
+    });
+  }
+
+  Future<void> _open(OfflineNovel n) async {
+    final firstChapter = n.volumes.first.chapters.first;
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder:
+            (context) => ReaderPage(
+              aid: n.novelId,
+              cid: firstChapter.cid,
+              initialTitle: firstChapter.title,
+              volumes: n.volumes,
+              novelInfo: n.info,
+            ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) {
+      return const Padding(
+        padding: EdgeInsets.all(16),
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+    if (_items.isEmpty) {
+      return const Padding(
+        padding: EdgeInsets.all(16),
+        child: Text('暂无已下载内容'),
+      );
+    }
+    return Column(
+      children:
+          _items
+              .map(
+                (n) => ListTile(
+                  leading:
+                      n.coverUrl.isNotEmpty
+                          ? ClipRRect(
+                            borderRadius: BorderRadius.circular(4),
+                            child: CachedImage(
+                              url: n.coverUrl,
+                              width: 40,
+                              height: 56,
+                              fit: BoxFit.cover,
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                          )
+                          : const Icon(Icons.menu_book_outlined),
+                  title: Text(
+                    n.novelName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  subtitle: Text('${n.volumes.first.chapters.length} 章'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => _open(n),
+                ),
+              )
+              .toList(),
     );
   }
 }

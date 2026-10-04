@@ -4,6 +4,7 @@ import '../src/rust/api/wenku8.dart';
 import '../src/rust/wenku8/models.dart';
 import '../widgets/cached_image.dart';
 import '../widgets/cf_search_loader.dart';
+import '../widgets/novel_grid.dart';
 
 class SearchPage extends StatefulWidget {
   final String? initialSearchType;
@@ -295,9 +296,9 @@ class _SearchPageState extends State<SearchPage> {
         },
         child: GridView.builder(
           padding: const EdgeInsets.all(8),
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 3,
-            childAspectRatio: 207 / 307,
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: novelGridColumns(context),
+            childAspectRatio: kNovelCardAspectRatio,
             crossAxisSpacing: 8,
             mainAxisSpacing: 8,
           ),

@@ -3,7 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:equatable/equatable.dart';
 import 'package:http/http.dart' as http;
-import 'package:wild/utils/app_info.dart';
+import 'package:wild/utils/app_version.dart';
 
 // 状态
 class UpdateState extends Equatable {
@@ -45,7 +45,6 @@ class UpdateCubit extends Cubit<UpdateState> {
   static const String _repo = 'wild-ohos';
   static const String _apiUrl =
       'https://api.github.com/repos/$_owner/$_repo/releases/latest';
-  static const int _ohosReleaseRevision = 1;
 
   UpdateCubit() : super(const UpdateState());
 
@@ -61,13 +60,13 @@ class UpdateCubit extends Cubit<UpdateState> {
     if (kDebugMode) {
       print('Checking for updates...');
       print('Request URL: $_apiUrl');
-      print('User-Agent: Wild/${AppInfo.fullVersion}');
+      print('User-Agent: ${AppVersion.userAgent}');
     }
 
     try {
       final response = await http.get(
         Uri.parse(_apiUrl),
-        headers: {'User-Agent': 'Wild/${AppInfo.fullVersion}'},
+        headers: {'User-Agent': AppVersion.userAgent},
       );
 
       if (kDebugMode) {
@@ -79,7 +78,7 @@ class UpdateCubit extends Cubit<UpdateState> {
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         final latestVersion = data['tag_name'] as String;
-        final currentVersion = 'v${AppInfo.version}-ohos.$_ohosReleaseRevision';
+        final currentVersion = AppVersion.releaseTag;
 
         if (kDebugMode) {
           print('Current version: $currentVersion');

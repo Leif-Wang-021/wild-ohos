@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:wild/src/rust/api/wenku8.dart' as w8;
 import 'package:wild/src/rust/wenku8/models.dart' as w8;
 import 'package:wild/widgets/novel_card.dart';
+import 'package:wild/widgets/novel_grid.dart';
 
 import '../home/recommend_cubit.dart';
 
@@ -76,12 +77,12 @@ class _HomeBlockWidget extends StatelessWidget {
           child: GridView.builder(
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 3,
-              childAspectRatio: 207 / 307,
-              crossAxisSpacing: 8,
-              mainAxisSpacing: 8,
-            ),
+                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: novelGridColumns(context),
+                    childAspectRatio: kNovelCardAspectRatio,
+                    crossAxisSpacing: 8,
+                    mainAxisSpacing: 8,
+                  ),
             itemCount: block.list.length,
             itemBuilder: (context, index) {
               final novel = block.list[index];

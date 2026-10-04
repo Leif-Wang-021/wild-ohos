@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:wild/services/offline_library.dart';
 import 'package:wild/src/rust/api/wenku8.dart' as w8;
 import 'package:wild/widgets/cached_image.dart';
 import 'package:intl/intl.dart';
@@ -191,12 +192,12 @@ class _HistoryItem extends StatelessWidget {
                     InkWell(
                       onTap: () async {
                         try {
-                          // 获取小说信息和章节信息
+                          // 优先联网获取小说信息和章节信息
                           final novelInfo = await w8.novelInfo(aid: history.novelId);
                           final volumes = await w8.novelReader(aid: history.novelId);
-                          
+
                           if (!context.mounted) return;
-                          
+
                           await Navigator.pushNamed(
                             context,
                             '/novel/reader',
@@ -214,16 +215,38 @@ class _HistoryItem extends StatelessWidget {
                             historyCubit.load();
                           }
                         } catch (e) {
-                          if (!context.mounted) return;
-                          // 显示错误提示
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text('加载失败: $e'),
-                              duration: const Duration(seconds: 2),
-                              behavior: SnackBarBehavior.floating,
-                              margin: const EdgeInsets.only(bottom: 16),
-                            ),
+                          // 联网失败（如断网）时，回退到本地已下载内容离线阅读。
+                          final offline = await OfflineLibrary.instance.load(
+                            history.novelId,
                           );
+                          if (offline == null) {
+                            if (!context.mounted) return;
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('加载失败，且本书未下载，无法离线阅读'),
+                                duration: Duration(seconds: 2),
+                                behavior: SnackBarBehavior.floating,
+                                margin: EdgeInsets.only(bottom: 16),
+                              ),
+                            );
+                            return;
+                          }
+                          if (!context.mounted) return;
+                          await Navigator.pushNamed(
+                            context,
+                            '/novel/reader',
+                            arguments: {
+                              'novelId': history.novelId,
+                              'chapterId': history.chapterId,
+                              'title': history.chapterTitle,
+                              'volumes': offline.volumes,
+                              'novelInfo': offline.info,
+                              'initialPage': history.progressPage,
+                            },
+                          );
+                          if (context.mounted) {
+                            historyCubit.load();
+                          }
                         }
                       },
                       child: Container(

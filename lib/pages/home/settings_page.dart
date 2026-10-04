@@ -11,6 +11,7 @@ import 'package:wild/pages/novel/reader_type_cubit.dart';
 import 'package:wild/src/rust/api/wenku8.dart';
 import 'package:wild/cubits/api_host_cubit.dart';
 import 'package:wild/cubits/volume_control_cubit.dart';
+import 'package:wild/pages/home/storage_manager_page.dart';
 
 class SettingsPage extends StatelessWidget {
   const SettingsPage({super.key});
@@ -308,6 +309,23 @@ class SettingsPage extends StatelessWidget {
                       },
                     ),
                   ],
+                ),
+              ),
+              // 存储管理
+              Card(
+                margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                child: ListTile(
+                  leading: const Icon(Icons.folder_outlined),
+                  title: const Text('存储管理'),
+                  subtitle: const Text('查看/管理已下载的章节与文件占用'),
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const StorageManagerPage(),
+                      ),
+                    );
+                  },
                 ),
               ),
               // 退出登录

@@ -2,6 +2,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:equatable/equatable.dart';
 import '../../src/rust/wenku8/models.dart';
 import '../../src/rust/api/wenku8.dart' as w8;
+import '../../services/chapter_content_service.dart';
 
 // 状态基类
 abstract class HtmlReaderState extends Equatable {
@@ -195,8 +196,12 @@ class HtmlReaderCubit extends Cubit<HtmlReaderState> {
         return;
       }
 
-      // 加载章节内容
-      final rawContent = await w8.chapterContent(aid: targetAid, cid: targetCid);
+      // 加载章节内容（本地缓存 → WebView 绕 CF → Rust 兜底）
+      final rawContent = await ChapterContentService.instance.load(
+        novelId: targetAid,
+        aid: targetAid,
+        cid: targetCid,
+      );
       final parsedContent = _parseContent(rawContent);
       
       // 更新阅读历史

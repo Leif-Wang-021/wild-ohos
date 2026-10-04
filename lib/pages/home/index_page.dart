@@ -4,7 +4,12 @@ import 'package:wild/widgets/novel_cover_card.dart';
 import '../../src/rust/api/database.dart';
 import '../../src/rust/api/wenku8.dart';
 import '../../src/rust/wenku8/models.dart';
+import '../../utils/log.dart';
+import '../../utils/wenku8_parse.dart';
 import '../../widgets/cached_image.dart';
+import '../../widgets/cf_page_loader.dart';
+import '../../widgets/novel_grid.dart';
+import '../../widgets/wenku8_js.dart';
 import 'category_page.dart';
 import 'recommend_page.dart';
 import '../search_page.dart';
@@ -96,9 +101,9 @@ class _HomeBlockWidget extends StatelessWidget {
           child: GridView.builder(
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 3,
-              childAspectRatio: 207 / 307,
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: novelGridColumns(context),
+              childAspectRatio: kNovelCardAspectRatio,
               crossAxisSpacing: 8,
               mainAxisSpacing: 8,
             ),
@@ -144,6 +149,12 @@ class _ToplistPageState extends State<ToplistPage> {
   String? _errorMessage;
   static const _keySort = 'toplist_page_sort';
 
+  // Cloudflare 兜底（WebView）
+  String _apiHost = 'https://www.wenku8.net';
+  bool _webViewActive = false;
+  int _webViewPage = 1;
+  bool _webViewRefresh = true;
+
   @override
   void initState() {
     super.initState();
@@ -185,11 +196,9 @@ class _ToplistPageState extends State<ToplistPage> {
       }
     });
 
+    final pageNumber = refresh ? 1 : (_currentPage?.currentPage ?? 0) + 1;
     try {
-      final page = await toplist(
-        sort: _selectedSort,
-        page: refresh ? 1 : (_currentPage?.currentPage ?? 0) + 1,
-      );
+      final page = await toplist(sort: _selectedSort, page: pageNumber);
       setState(() {
         if (refresh) {
           _currentPage = page;
@@ -202,8 +211,23 @@ class _ToplistPageState extends State<ToplistPage> {
         }
         _isLoading = false;
         _errorMessage = null;
+        _webViewActive = false;
       });
-    } catch (e) {
+    } catch (e, s) {
+      Log.error('ToplistPage', 'load toplist failed: $e', s);
+      if (Wenku8Parse.isCloudflare(e)) {
+        await _prepareApiHost();
+        if (!mounted) return;
+        setState(() {
+          _webViewPage = pageNumber;
+          _webViewRefresh = refresh;
+          _webViewActive = true;
+          _isLoading = true;
+          _errorMessage = null;
+          if (refresh) _currentPage = null;
+        });
+        return;
+      }
       setState(() {
         _isLoading = false;
         _errorMessage = e.toString();
@@ -211,8 +235,81 @@ class _ToplistPageState extends State<ToplistPage> {
     }
   }
 
+  Future<void> _prepareApiHost() async {
+    try {
+      final host = await getApiHost();
+      _apiHost = host.isEmpty ? 'https://www.wenku8.net' : host;
+    } catch (_) {}
+  }
+
+  void _applyWebViewJson(String json) {
+    try {
+      final page = Wenku8Parse.listPage(json);
+      Log.info('ToplistPage', 'webview toplist ok: ${page.records.length}');
+      if (!mounted) return;
+      setState(() {
+        if (_webViewRefresh || _currentPage == null) {
+          _currentPage = page;
+        } else {
+          _currentPage = PageStatsNovelCover(
+            currentPage: page.currentPage,
+            maxPage: page.maxPage,
+            records: [..._currentPage!.records, ...page.records],
+          );
+        }
+        _isLoading = false;
+        _webViewActive = false;
+        _errorMessage = null;
+      });
+    } catch (e, s) {
+      Log.error('ToplistPage', 'parse webview json failed: $e', s);
+      if (!mounted) return;
+      setState(() {
+        _isLoading = false;
+        _webViewActive = false;
+        _errorMessage = '解析排行失败: $e';
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    return Stack(
+      children: [
+        _buildToplistContent(),
+        if (_webViewActive)
+          Positioned(
+            left: 0,
+            top: 0,
+            width: 1,
+            height: 1,
+            child: IgnorePointer(
+              child: Opacity(
+                opacity: 0.01,
+                child: CfPageLoader(
+                  apiHost: _apiHost,
+                  path:
+                      '/modules/article/toplist.php?sort=$_selectedSort&page=$_webViewPage&charset=gbk',
+                  parserJs: Wenku8Js.listPage,
+                  onSuccess: _applyWebViewJson,
+                  onError: (err) {
+                    Log.error('ToplistPage', 'webview error: $err');
+                    if (!mounted) return;
+                    setState(() {
+                      _webViewActive = false;
+                      _isLoading = false;
+                      _errorMessage = err;
+                    });
+                  },
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildToplistContent() {
     return Column(
       children: [
         // Sort selector
@@ -296,13 +393,12 @@ class _ToplistPageState extends State<ToplistPage> {
                     },
                     child: GridView.builder(
                       padding: const EdgeInsets.all(8),
-                      gridDelegate:
-                          const SliverGridDelegateWithFixedCrossAxisCount(
-                            crossAxisCount: 3,
-                            childAspectRatio: 207 / 307,
-                            crossAxisSpacing: 8,
-                            mainAxisSpacing: 8,
-                          ),
+                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: novelGridColumns(context),
+                        childAspectRatio: kNovelCardAspectRatio,
+                        crossAxisSpacing: 8,
+                        mainAxisSpacing: 8,
+                      ),
                       itemCount:
                           _currentPage!.records.length +
                           (_currentPage!.currentPage < _currentPage!.maxPage
@@ -341,6 +437,12 @@ class _ArticlelistPageState extends State<ArticlelistPage> {
   bool _isLoading = false;
   String? _errorMessage;
 
+  // Cloudflare 兜底（WebView）
+  String _apiHost = 'https://www.wenku8.net';
+  bool _webViewActive = false;
+  int _webViewPage = 1;
+  bool _webViewRefresh = true;
+
   @override
   void initState() {
     super.initState();
@@ -357,11 +459,9 @@ class _ArticlelistPageState extends State<ArticlelistPage> {
       }
     });
 
+    final pageNumber = refresh ? 1 : (_currentPage?.currentPage ?? 0) + 1;
     try {
-      final page = await articlelist(
-        fullflag: 1,
-        page: refresh ? 1 : (_currentPage?.currentPage ?? 0) + 1,
-      );
+      final page = await articlelist(fullflag: 1, page: pageNumber);
       setState(() {
         if (refresh) {
           _currentPage = page;
@@ -374,8 +474,23 @@ class _ArticlelistPageState extends State<ArticlelistPage> {
         }
         _isLoading = false;
         _errorMessage = null;
+        _webViewActive = false;
       });
-    } catch (e) {
+    } catch (e, s) {
+      Log.error('ArticlelistPage', 'load articlelist failed: $e', s);
+      if (Wenku8Parse.isCloudflare(e)) {
+        await _prepareApiHost();
+        if (!mounted) return;
+        setState(() {
+          _webViewPage = pageNumber;
+          _webViewRefresh = refresh;
+          _webViewActive = true;
+          _isLoading = true;
+          _errorMessage = null;
+          if (refresh) _currentPage = null;
+        });
+        return;
+      }
       setState(() {
         _isLoading = false;
         _errorMessage = e.toString();
@@ -383,8 +498,84 @@ class _ArticlelistPageState extends State<ArticlelistPage> {
     }
   }
 
+  Future<void> _prepareApiHost() async {
+    try {
+      final host = await getApiHost();
+      _apiHost = host.isEmpty ? 'https://www.wenku8.net' : host;
+    } catch (_) {}
+  }
+
+  void _applyWebViewJson(String json) {
+    try {
+      final page = Wenku8Parse.listPage(json);
+      Log.info(
+        'ArticlelistPage',
+        'webview articlelist ok: ${page.records.length}',
+      );
+      if (!mounted) return;
+      setState(() {
+        if (_webViewRefresh || _currentPage == null) {
+          _currentPage = page;
+        } else {
+          _currentPage = PageStatsNovelCover(
+            currentPage: page.currentPage,
+            maxPage: page.maxPage,
+            records: [..._currentPage!.records, ...page.records],
+          );
+        }
+        _isLoading = false;
+        _webViewActive = false;
+        _errorMessage = null;
+      });
+    } catch (e, s) {
+      Log.error('ArticlelistPage', 'parse webview json failed: $e', s);
+      if (!mounted) return;
+      setState(() {
+        _isLoading = false;
+        _webViewActive = false;
+        _errorMessage = '解析完结列表失败: $e';
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    return Stack(
+      children: [
+        _buildArticlelistContent(),
+        if (_webViewActive)
+          Positioned(
+            left: 0,
+            top: 0,
+            width: 1,
+            height: 1,
+            child: IgnorePointer(
+              child: Opacity(
+                opacity: 0.01,
+                child: CfPageLoader(
+                  apiHost: _apiHost,
+                  path:
+                      '/modules/article/articlelist.php?fullflag=1&page=$_webViewPage&charset=gbk',
+                  parserJs: Wenku8Js.listPage,
+                  onSuccess: _applyWebViewJson,
+                  onError: (err) {
+                    Log.error('ArticlelistPage', 'webview error: $err');
+                    if (!mounted) return;
+                    setState(() {
+                      _webViewActive = false;
+                      _isLoading = false;
+                      _errorMessage = err;
+                    });
+                  },
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildArticlelistContent() {
     return _errorMessage != null
         ? RefreshIndicator(
             onRefresh: () => _loadArticlelist(refresh: true),
@@ -433,9 +624,9 @@ class _ArticlelistPageState extends State<ArticlelistPage> {
                 },
                 child: GridView.builder(
                   padding: const EdgeInsets.all(8),
-                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 3,
-                    childAspectRatio: 207 / 307,
+                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: novelGridColumns(context),
+                    childAspectRatio: kNovelCardAspectRatio,
                     crossAxisSpacing: 8,
                     mainAxisSpacing: 8,
                   ),

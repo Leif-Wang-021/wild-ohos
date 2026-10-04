@@ -1,13 +1,18 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:wild/services/offline_library.dart';
 import 'package:wild/src/rust/api/wenku8.dart' as w8;
-import 'package:wild/src/rust/frb_generated.dart';
 import 'package:wild/widgets/cached_image.dart';
 import 'package:flutter_html/flutter_html.dart';
 import 'package:wild/cubits/api_host_cubit.dart';
 import 'package:wild/pages/home/bookshelf_cubit.dart';
-import 'package:wild/pages/novel/reviews_page.dart';
+import 'package:wild/utils/log.dart';
+import 'package:wild/utils/wenku8_parse.dart';
 import 'package:wild/widgets/cf_action_loader.dart';
+import 'package:wild/widgets/cf_page_loader.dart';
+import 'package:wild/widgets/wenku8_js.dart';
 
 import '../../src/rust/wenku8/models.dart';
 import 'novel_info_cubit.dart';
@@ -55,7 +60,13 @@ class NovelInfoPage extends StatelessWidget {
     }
 
     return BlocProvider(
-      create: (context) => NovelInfoCubit(novelId)..load(),
+      create: (context) {
+        final cubit = NovelInfoCubit(novelId);
+        // 按实时书架状态决定是否缓存该书详情。
+        cubit.inBookshelf = bookshelfCubit.state.isBookInBookshelf(novelId);
+        cubit.load();
+        return cubit;
+      },
       child: Scaffold(
         appBar: AppBar(
           title: const Text('小说详情'),
@@ -159,10 +170,98 @@ class NovelInfoPage extends StatelessWidget {
                 novelId: novelId,
               );
             }
+            if (state is NovelInfoChallenge) {
+              return _NovelInfoWebViewFallback(
+                apiHost: state.apiHost,
+                novelId: novelId,
+              );
+            }
             return const SizedBox.shrink();
           },
         ),
       ),
+    );
+  }
+}
+
+/// Cloudflare 兜底：先用 WebView 抓取详情页，成功后再抓取章节目录。
+class _NovelInfoWebViewFallback extends StatefulWidget {
+  final String apiHost;
+  final String novelId;
+
+  const _NovelInfoWebViewFallback({
+    required this.apiHost,
+    required this.novelId,
+  });
+
+  @override
+  State<_NovelInfoWebViewFallback> createState() =>
+      _NovelInfoWebViewFallbackState();
+}
+
+class _NovelInfoWebViewFallbackState
+    extends State<_NovelInfoWebViewFallback> {
+  bool _infoDone = false;
+  NovelInfo? _info;
+
+  @override
+  Widget build(BuildContext context) {
+    final cubit = context.read<NovelInfoCubit>();
+    return Stack(
+      children: [
+        const Center(child: CircularProgressIndicator()),
+        Positioned(
+          left: 0,
+          top: 0,
+          width: 1,
+          height: 1,
+          child: IgnorePointer(
+            child: Opacity(
+              opacity: 0.01,
+              child:
+                  _infoDone
+                      ? CfPageLoader(
+                        key: const ValueKey('novel-reader'),
+                        apiHost: widget.apiHost,
+                        path:
+                            '/modules/article/reader.php?aid=${widget.novelId}&charset=gbk',
+                        parserJs: Wenku8Js.readerVolumes,
+                        onSuccess: (json) {
+                          cubit.applyWebViewVolumes(json, _info!);
+                          // 页面层直接缓存目录，避免依赖 cubit 状态时序。
+                          try {
+                            final vols = Wenku8Parse.volumeList(json);
+                            if (vols.isNotEmpty) {
+                              unawaited(
+                                OfflineLibrary.instance.cacheShelfDetail(
+                                  widget.novelId,
+                                  _info!,
+                                  vols,
+                                ),
+                              );
+                            }
+                          } catch (_) {}
+                        },
+                        onError: cubit.setError,
+                      )
+                      : CfPageLoader(
+                        key: const ValueKey('novel-info'),
+                        apiHost: widget.apiHost,
+                        path:
+                            '/modules/article/articleinfo.php?id=${widget.novelId}&charset=gbk',
+                        parserJs: Wenku8Js.novelInfo,
+                        onSuccess: (json) {
+                          setState(() {
+                            _info = Wenku8Parse.novelInfo(json);
+                            _infoDone = true;
+                          });
+                        },
+                        onError: cubit.setError,
+                      ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

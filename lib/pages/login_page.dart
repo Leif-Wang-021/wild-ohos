@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:wild/pages/auth_cubit.dart';
+import 'package:wild/utils/app_platform.dart';
+import 'package:wild/utils/log.dart';
+import 'package:wild/widgets/cf_login_loader.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -15,12 +18,18 @@ class _LoginPageState extends State<LoginPage> {
   final _passwordController = TextEditingController();
   final _checkcodeController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
+  final _loginLoaderKey = GlobalKey<CfLoginLoaderState>();
+
+  static const String _defaultApiHost = 'https://www.wenku8.net';
+
+  /// On OHOS the website's Cloudflare protection blocks the Rust HTTP client,
+  /// so captcha fetching and login run inside a WebView session instead.
+  bool get _useWebViewFlow => AppPlatform.isOHOS;
 
   @override
   void initState() {
     super.initState();
-    final authCubit = context.read<AuthCubit>();
-    authCubit.loadCheckcode();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadCheckcode());
   }
 
   @override
@@ -31,14 +40,61 @@ class _LoginPageState extends State<LoginPage> {
     super.dispose();
   }
 
-  void _onLoginPressed() {
-    if (_formKey.currentState?.validate() ?? false) {
-      context.read<AuthCubit>().login(
-        _usernameController.text,
-        _passwordController.text,
-        _checkcodeController.text,
-      );
+  Future<void> _loadCheckcode() async {
+    if (!mounted) return;
+    final authCubit = context.read<AuthCubit>();
+    if (!_useWebViewFlow) {
+      authCubit.loadCheckcode();
+      return;
     }
+
+    Log.info('LoginPage', 'load checkcode via WebView');
+    authCubit.startCheckcodeLoading();
+    final loader = _loginLoaderKey.currentState;
+    if (loader == null) {
+      Log.error('LoginPage', 'WebView loader not ready');
+      authCubit.setCheckcodeError();
+      return;
+    }
+    final bytes = await loader.fetchCaptcha();
+    if (!mounted) return;
+    if (bytes == null || bytes.isEmpty) {
+      Log.warning('LoginPage', 'checkcode fetch returned empty');
+      context.read<AuthCubit>().setCheckcodeError();
+    } else {
+      Log.info('LoginPage', 'checkcode loaded (${bytes.length} bytes)');
+      context.read<AuthCubit>().setCheckcode(bytes);
+    }
+  }
+
+  Future<void> _onLoginPressed() async {
+    if (!(_formKey.currentState?.validate() ?? false)) return;
+    final authCubit = context.read<AuthCubit>();
+    final username = _usernameController.text;
+    final password = _passwordController.text;
+    final checkcode = _checkcodeController.text;
+
+    if (!_useWebViewFlow) {
+      authCubit.login(username, password, checkcode);
+      return;
+    }
+
+    Log.info('LoginPage', 'submit login for user=$username');
+    authCubit.setLoginLoading();
+    final loader = _loginLoaderKey.currentState;
+    if (loader == null) {
+      Log.error('LoginPage', 'WebView loader not ready');
+      authCubit.setError('登录失败，请检查网络连接');
+      return;
+    }
+    final body = await loader.login(username, password, checkcode);
+    if (!mounted) return;
+    if (body == null) {
+      Log.error('LoginPage', 'login returned no body');
+      context.read<AuthCubit>().setError('登录失败，请检查网络连接');
+      return;
+    }
+    await context.read<AuthCubit>().handleWebViewLoginBody(username, body);
   }
 
   Future<void> _onRegisterPressed() async {
@@ -75,6 +131,29 @@ class _LoginPageState extends State<LoginPage> {
 
   @override
   Widget build(BuildContext context) {
+    return Stack(
+      children: [
+        // The Scaffold (login form) is opaque and sits on top of the WebView.
+        _buildScaffold(context),
+        // The WebView must stay fullscreen (like the bookshelf loader) so that
+        // Cloudflare's JS challenge is actually executed on OHOS.
+        if (_useWebViewFlow)
+          Positioned.fill(
+            child: IgnorePointer(
+              child: Opacity(
+                opacity: 0.01,
+                child: CfLoginLoader(
+                  key: _loginLoaderKey,
+                  apiHost: _defaultApiHost,
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildScaffold(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('登录轻小说文库')),
       body: BlocConsumer<AuthCubit, AuthState>(
@@ -96,6 +175,10 @@ class _LoginPageState extends State<LoginPage> {
             ScaffoldMessenger.of(
               context,
             ).showSnackBar(SnackBar(content: Text(message)));
+            // A captcha is single-use; refresh it after a failed attempt.
+            if (_useWebViewFlow) {
+              _loadCheckcode();
+            }
           } else if (state.status == AuthStatus.authenticated) {
             Navigator.of(context).pushReplacementNamed('/home');
           }
@@ -172,11 +255,7 @@ class _LoginPageState extends State<LoginPage> {
                                 return _buildRetryButton(context);
                               }
                               return GestureDetector(
-                                onTap:
-                                    () =>
-                                        context
-                                            .read<AuthCubit>()
-                                            .loadCheckcode(),
+                                onTap: _loadCheckcode,
                                 child: Image.memory(
                                   state.checkcode!,
                                   width: 200,
@@ -244,7 +323,7 @@ class _LoginPageState extends State<LoginPage> {
 
   Widget _buildRetryButton(BuildContext context) {
     return InkWell(
-      onTap: () => context.read<AuthCubit>().loadCheckcode(),
+      onTap: _loadCheckcode,
       child: Container(
         width: 200,
         height: 50,

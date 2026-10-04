@@ -7,8 +7,8 @@
   "author": "",
   "license": "",
   "dependencies": {
-    "@ohos/flutter_ohos": "file:../../../../flutter_ohos/bin/cache/artifacts/engine/ohos-arm64/flutter_embedding_debug.har",
-    "flutter_native_arm64_v8a": "file:../../../../flutter_ohos/bin/cache/artifacts/engine/ohos-arm64/arm64_v8a_debug.har"
+    "@ohos/flutter_ohos": "file:F:/flutter_ohos/bin/cache/artifacts/engine/ohos-arm64/flutter_embedding_debug.har",
+    "flutter_native_arm64_v8a": "file:F:/flutter_ohos/bin/cache/artifacts/engine/ohos-arm64/arm64_v8a_debug.har"
   },
 }
 

@@ -25,7 +25,11 @@ import 'package:wild/pages/recommend/recommend_page.dart';
 import 'package:wild/pages/home/more_page.dart';
 import 'package:wild/pages/search_page.dart';
 import 'package:wild/pages/home/about_page.dart';
+import 'package:webview_flutter/webview_flutter.dart';
+import 'package:wild/methods.dart';
+import 'package:wild/services/webview_fetcher.dart';
 import 'package:wild/utils/app_info.dart';
+import 'package:wild/utils/log.dart';
 import 'package:wild/pages/update_cubit.dart';
 import 'package:wild/widgets/update_checker.dart';
 import 'package:wild/pages/novel/top_bar_height_cubit.dart';
@@ -55,6 +59,13 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   print("=== Binding OK ===");
   await AppInfo.init();
+  try {
+    final root = await dataRoot();
+    Log.init(root);
+    Log.info('Main', 'app start os=${Platform.operatingSystem} root=$root');
+  } catch (e) {
+    print("=== Log init failed: $e ===");
+  }
   print("=== AppInfo OK, os=${Platform.operatingSystem} ===");
   print("=== isOHOS=${AppPlatform.isOHOS} ===");
   print("=== Calling RustLib.init()... ===");
@@ -99,6 +110,69 @@ class MyApp extends StatelessWidget {
       ],
       child: YourApp(),
     );
+  }
+}
+
+/// 常驻隐藏 WebView 宿主：为全局 WebViewFetcher 提供唯一的控制器。
+///
+/// WebView 必须保持在窗口内（尺寸 1×1、近乎透明），否则 OHOS 上 Cloudflare
+/// 挑战 JS 不会执行。
+class WebViewFetcherHost extends StatefulWidget {
+  final Widget child;
+
+  const WebViewFetcherHost({super.key, required this.child});
+
+  @override
+  State<WebViewFetcherHost> createState() => _WebViewFetcherHostState();
+}
+
+class _WebViewFetcherHostState extends State<WebViewFetcherHost> {
+  @override
+  void initState() {
+    super.initState();
+    // 延迟到首帧后 attach，确保 WebView 平台通道可用。
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      WebViewFetcher.instance.attach();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      children: [
+        widget.child,
+        Positioned(
+          left: 0,
+          top: 0,
+          width: 1,
+          height: 1,
+          child: IgnorePointer(
+            child: Opacity(
+              opacity: 0.01,
+              child: WebViewFetcherView(),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// WebViewFetcher 的可见载体（1×1）。
+class WebViewFetcherView extends StatefulWidget {
+  const WebViewFetcherView({super.key});
+
+  @override
+  State<WebViewFetcherView> createState() => _WebViewFetcherViewState();
+}
+
+class _WebViewFetcherViewState extends State<WebViewFetcherView> {
+  @override
+  Widget build(BuildContext context) {
+    if (!WebViewFetcher.instance.isAttached) {
+      return const SizedBox(width: 1, height: 1);
+    }
+    return WebViewWidget(controller: WebViewFetcher.instance.controller);
   }
 }
 
@@ -215,6 +289,10 @@ class YourApp extends StatelessWidget {
             },
             '/about': (context) => const AboutPage(),
           },
+          // 常驻隐藏 WebView：位于 MaterialApp 内部以获得完整上下文。
+          builder: (context, child) => WebViewFetcherHost(
+            child: child ?? const SizedBox.shrink(),
+          ),
         );
       },
     );
