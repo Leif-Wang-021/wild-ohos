@@ -2,9 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:wild/src/rust/wenku8/models.dart' as w8;
 import 'package:wild/widgets/cached_image.dart';
-import 'package:wild/widgets/cf_page_loader.dart';
 import 'package:wild/widgets/novel_grid.dart';
-import 'package:wild/widgets/wenku8_js.dart';
 
 import 'recommend_cubit.dart';
 
@@ -37,10 +35,6 @@ class RecommendPage extends StatelessWidget {
             if (state is RecommendLoaded) {
               return _RecommendContent(blocks: state.blocks);
             }
-            if (state is RecommendChallenge) {
-              // Cloudflare challenge: fetch the page through a WebView session.
-              return _RecommendWebViewFallback(apiHost: state.apiHost);
-            }
             return const SizedBox.shrink();
           },
         ),
@@ -65,40 +59,6 @@ class _RecommendContent extends StatelessWidget {
           return _HomeBlockWidget(block: block);
         },
       ),
-    );
-  }
-}
-
-class _RecommendWebViewFallback extends StatelessWidget {
-  final String apiHost;
-
-  const _RecommendWebViewFallback({required this.apiHost});
-
-  @override
-  Widget build(BuildContext context) {
-    final cubit = context.read<RecommendCubit>();
-    return Stack(
-      children: [
-        const Center(child: CircularProgressIndicator()),
-        Positioned(
-          left: 0,
-          top: 0,
-          width: 1,
-          height: 1,
-          child: IgnorePointer(
-            child: Opacity(
-              opacity: 0.01,
-              child: CfPageLoader(
-                apiHost: apiHost,
-                path: '/index.php?charset=gbk',
-                parserJs: Wenku8Js.indexBlocks,
-                onSuccess: cubit.applyWebViewJson,
-                onError: cubit.setError,
-              ),
-            ),
-          ),
-        ),
-      ],
     );
   }
 }

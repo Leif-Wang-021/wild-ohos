@@ -1,8 +1,7 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:equatable/equatable.dart';
-import '../src/rust/api/wenku8.dart';
+import '../services/wenku8_repo.dart';
 import '../src/rust/wenku8/models.dart';
-import '../methods.dart';
 
 // State
 abstract class ArticlelistState extends Equatable {
@@ -74,10 +73,14 @@ class ArticlelistCubit extends Cubit<ArticlelistState> {
 
     try {
       final page = refresh ? 1 : currentState.currentPage;
-      final result = await articlelist(
+      final result = await Wenku8Repo.instance.articlelist(
         fullflag: 1, // 1 表示完本小说
         page: page,
       );
+      if (result == null) {
+        if (state is! ArticlelistLoaded) emit(ArticlelistError('加载失败，请下拉刷新重试'));
+        return;
+      }
       final novels = result.records.map((cover) => Novel(
         id: cover.aid,
         title: cover.title,

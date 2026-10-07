@@ -1,15 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:wild/services/wenku8_repo.dart';
 import 'package:wild/widgets/novel_cover_card.dart';
 
 import '../../src/rust/api/database.dart';
 import '../../src/rust/api/wenku8.dart';
 import '../../src/rust/wenku8/models.dart';
 import '../../utils/log.dart';
-import '../../utils/wenku8_parse.dart';
-import '../../widgets/cached_image.dart';
-import '../../widgets/cf_page_loader.dart';
 import '../../widgets/novel_grid.dart';
-import '../../widgets/wenku8_js.dart';
 import 'category_page.dart';
 import 'recommend_page.dart';
 import '../search_page.dart';
@@ -149,12 +146,6 @@ class _ToplistPageState extends State<ToplistPage> {
   String? _errorMessage;
   static const _keySort = 'toplist_page_sort';
 
-  // Cloudflare 兜底（WebView）
-  String _apiHost = 'https://www.wenku8.net';
-  bool _webViewActive = false;
-  int _webViewPage = 1;
-  bool _webViewRefresh = true;
-
   @override
   void initState() {
     super.initState();
@@ -165,29 +156,20 @@ class _ToplistPageState extends State<ToplistPage> {
     try {
       final savedSort = await loadProperty(key: _keySort);
       if (savedSort.isNotEmpty) {
-        setState(() {
-          _selectedSort = savedSort;
-        });
-        _loadToplist(refresh: true);
-      } else {
-        _loadToplist(refresh: true);
+        setState(() => _selectedSort = savedSort);
       }
-    } catch (e) {
-      // 如果加载失败，使用默认值
-      _loadToplist(refresh: true);
-    }
+    } catch (_) {}
+    _loadToplist(refresh: true);
   }
 
   Future<void> _saveState() async {
     try {
       await saveProperty(key: _keySort, value: _selectedSort);
-    } catch (e) {
-      // 如果保存失败，继续使用当前状态
-    }
+    } catch (_) {}
   }
 
   Future<void> _loadToplist({bool refresh = false}) async {
-    if (_isLoading) return;
+    if (_isLoading && !refresh) return;
     setState(() {
       _isLoading = true;
       if (refresh) {
@@ -198,57 +180,20 @@ class _ToplistPageState extends State<ToplistPage> {
 
     final pageNumber = refresh ? 1 : (_currentPage?.currentPage ?? 0) + 1;
     try {
-      final page = await toplist(sort: _selectedSort, page: pageNumber);
-      setState(() {
-        if (refresh) {
-          _currentPage = page;
-        } else {
-          _currentPage = PageStatsNovelCover(
-            currentPage: page.currentPage,
-            maxPage: page.maxPage,
-            records: [..._currentPage!.records, ...page.records],
-          );
-        }
-        _isLoading = false;
-        _errorMessage = null;
-        _webViewActive = false;
-      });
-    } catch (e, s) {
-      Log.error('ToplistPage', 'load toplist failed: $e', s);
-      if (Wenku8Parse.needsWebViewFallback(e)) {
-        await _prepareApiHost();
-        if (!mounted) return;
+      final page = await Wenku8Repo.instance.toplist(
+        sort: _selectedSort,
+        page: pageNumber,
+      );
+      if (!mounted) return;
+      if (page == null) {
         setState(() {
-          _webViewPage = pageNumber;
-          _webViewRefresh = refresh;
-          _webViewActive = true;
-          _isLoading = true;
-          _errorMessage = null;
-          if (refresh) _currentPage = null;
+          _isLoading = false;
+          if (_currentPage == null) _errorMessage = '加载失败，请下拉刷新重试';
         });
         return;
       }
       setState(() {
-        _isLoading = false;
-        _errorMessage = e.toString();
-      });
-    }
-  }
-
-  Future<void> _prepareApiHost() async {
-    try {
-      final host = await getApiHost();
-      _apiHost = host.isEmpty ? 'https://www.wenku8.net' : host;
-    } catch (_) {}
-  }
-
-  void _applyWebViewJson(String json) {
-    try {
-      final page = Wenku8Parse.listPage(json);
-      Log.info('ToplistPage', 'webview toplist ok: ${page.records.length}');
-      if (!mounted) return;
-      setState(() {
-        if (_webViewRefresh || _currentPage == null) {
+        if (refresh || _currentPage == null) {
           _currentPage = page;
         } else {
           _currentPage = PageStatsNovelCover(
@@ -258,55 +203,21 @@ class _ToplistPageState extends State<ToplistPage> {
           );
         }
         _isLoading = false;
-        _webViewActive = false;
         _errorMessage = null;
       });
     } catch (e, s) {
-      Log.error('ToplistPage', 'parse webview json failed: $e', s);
+      Log.error('ToplistPage', 'load toplist failed: $e', s);
       if (!mounted) return;
       setState(() {
         _isLoading = false;
-        _webViewActive = false;
-        _errorMessage = '解析排行失败: $e';
+        if (_currentPage == null) _errorMessage = e.toString();
       });
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    return Stack(
-      children: [
-        _buildToplistContent(),
-        if (_webViewActive)
-          Positioned(
-            left: 0,
-            top: 0,
-            width: 1,
-            height: 1,
-            child: IgnorePointer(
-              child: Opacity(
-                opacity: 0.01,
-                child: CfPageLoader(
-                  apiHost: _apiHost,
-                  path:
-                      '/modules/article/toplist.php?sort=$_selectedSort&page=$_webViewPage&charset=gbk',
-                  parserJs: Wenku8Js.listPage,
-                  onSuccess: _applyWebViewJson,
-                  onError: (err) {
-                    Log.error('ToplistPage', 'webview error: $err');
-                    if (!mounted) return;
-                    setState(() {
-                      _webViewActive = false;
-                      _isLoading = false;
-                      _errorMessage = err;
-                    });
-                  },
-                ),
-              ),
-            ),
-          ),
-      ],
-    );
+    return _buildToplistContent();
   }
 
   Widget _buildToplistContent() {
@@ -437,12 +348,6 @@ class _ArticlelistPageState extends State<ArticlelistPage> {
   bool _isLoading = false;
   String? _errorMessage;
 
-  // Cloudflare 兜底（WebView）
-  String _apiHost = 'https://www.wenku8.net';
-  bool _webViewActive = false;
-  int _webViewPage = 1;
-  bool _webViewRefresh = true;
-
   @override
   void initState() {
     super.initState();
@@ -450,7 +355,7 @@ class _ArticlelistPageState extends State<ArticlelistPage> {
   }
 
   Future<void> _loadArticlelist({bool refresh = false}) async {
-    if (_isLoading) return;
+    if (_isLoading && !refresh) return;
     setState(() {
       _isLoading = true;
       if (refresh) {
@@ -461,60 +366,20 @@ class _ArticlelistPageState extends State<ArticlelistPage> {
 
     final pageNumber = refresh ? 1 : (_currentPage?.currentPage ?? 0) + 1;
     try {
-      final page = await articlelist(fullflag: 1, page: pageNumber);
-      setState(() {
-        if (refresh) {
-          _currentPage = page;
-        } else {
-          _currentPage = PageStatsNovelCover(
-            currentPage: page.currentPage,
-            maxPage: page.maxPage,
-            records: [..._currentPage!.records, ...page.records],
-          );
-        }
-        _isLoading = false;
-        _errorMessage = null;
-        _webViewActive = false;
-      });
-    } catch (e, s) {
-      Log.error('ArticlelistPage', 'load articlelist failed: $e', s);
-      if (Wenku8Parse.needsWebViewFallback(e)) {
-        await _prepareApiHost();
-        if (!mounted) return;
+      final page = await Wenku8Repo.instance.articlelist(
+        fullflag: 1,
+        page: pageNumber,
+      );
+      if (!mounted) return;
+      if (page == null) {
         setState(() {
-          _webViewPage = pageNumber;
-          _webViewRefresh = refresh;
-          _webViewActive = true;
-          _isLoading = true;
-          _errorMessage = null;
-          if (refresh) _currentPage = null;
+          _isLoading = false;
+          if (_currentPage == null) _errorMessage = '加载失败，请下拉刷新重试';
         });
         return;
       }
       setState(() {
-        _isLoading = false;
-        _errorMessage = e.toString();
-      });
-    }
-  }
-
-  Future<void> _prepareApiHost() async {
-    try {
-      final host = await getApiHost();
-      _apiHost = host.isEmpty ? 'https://www.wenku8.net' : host;
-    } catch (_) {}
-  }
-
-  void _applyWebViewJson(String json) {
-    try {
-      final page = Wenku8Parse.listPage(json);
-      Log.info(
-        'ArticlelistPage',
-        'webview articlelist ok: ${page.records.length}',
-      );
-      if (!mounted) return;
-      setState(() {
-        if (_webViewRefresh || _currentPage == null) {
+        if (refresh || _currentPage == null) {
           _currentPage = page;
         } else {
           _currentPage = PageStatsNovelCover(
@@ -524,55 +389,21 @@ class _ArticlelistPageState extends State<ArticlelistPage> {
           );
         }
         _isLoading = false;
-        _webViewActive = false;
         _errorMessage = null;
       });
     } catch (e, s) {
-      Log.error('ArticlelistPage', 'parse webview json failed: $e', s);
+      Log.error('ArticlelistPage', 'load articlelist failed: $e', s);
       if (!mounted) return;
       setState(() {
         _isLoading = false;
-        _webViewActive = false;
-        _errorMessage = '解析完结列表失败: $e';
+        if (_currentPage == null) _errorMessage = e.toString();
       });
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    return Stack(
-      children: [
-        _buildArticlelistContent(),
-        if (_webViewActive)
-          Positioned(
-            left: 0,
-            top: 0,
-            width: 1,
-            height: 1,
-            child: IgnorePointer(
-              child: Opacity(
-                opacity: 0.01,
-                child: CfPageLoader(
-                  apiHost: _apiHost,
-                  path:
-                      '/modules/article/articlelist.php?fullflag=1&page=$_webViewPage&charset=gbk',
-                  parserJs: Wenku8Js.listPage,
-                  onSuccess: _applyWebViewJson,
-                  onError: (err) {
-                    Log.error('ArticlelistPage', 'webview error: $err');
-                    if (!mounted) return;
-                    setState(() {
-                      _webViewActive = false;
-                      _isLoading = false;
-                      _errorMessage = err;
-                    });
-                  },
-                ),
-              ),
-            ),
-          ),
-      ],
-    );
+    return _buildArticlelistContent();
   }
 
   Widget _buildArticlelistContent() {

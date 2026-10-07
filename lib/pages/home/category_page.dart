@@ -1,19 +1,15 @@
-import 'dart:convert';
-
 import 'package:flutter/material.dart';
+import 'package:wild/services/wenku8_repo.dart';
 import 'package:wild/src/rust/api/database.dart';
-import 'package:wild/src/rust/api/wenku8.dart';
+import 'package:wild/src/rust/api/wenku8.dart' show PageStatsNovelCover;
 import 'package:wild/src/rust/wenku8/models.dart';
 import 'package:wild/utils/log.dart';
-import 'package:wild/utils/wenku8_parse.dart';
-import 'package:wild/widgets/cf_page_loader.dart';
 import 'package:wild/widgets/novel_cover_card.dart';
 import 'package:wild/widgets/novel_grid.dart';
-import 'package:wild/widgets/wenku8_js.dart';
 
 class CategoryPage extends StatefulWidget {
   final String? initialTag;
-  
+
   const CategoryPage({super.key, this.initialTag});
 
   @override
@@ -30,15 +26,6 @@ class _CategoryPageState extends State<CategoryPage> {
   static const _keyTag = 'category_page_selected_tag';
   static const _keyViewMode = 'category_page_view_mode';
 
-  // Cloudflare 兜底（WebView）
-  String _apiHost = 'https://www.wenku8.net';
-  bool _tagsWebViewActive = false;
-  bool _pageWebViewActive = false;
-  bool _pageWebViewRefresh = true;
-  int _pageWebViewNumber = 1;
-  // 标签名 -> 站点生成的 GBK 编码链接（导航到 tags.php 后由浏览器给出）
-  final Map<String, String> _tagHrefs = {};
-
   @override
   void initState() {
     super.initState();
@@ -51,23 +38,15 @@ class _CategoryPageState extends State<CategoryPage> {
     try {
       if (_selectedTag == null) {
         final savedTag = await loadProperty(key: _keyTag);
-        if (savedTag.isNotEmpty) {
-          if (!mounted) return;
-          setState(() {
-            _selectedTag = savedTag;
-          });
+        if (savedTag.isNotEmpty && mounted) {
+          setState(() => _selectedTag = savedTag);
         }
       }
       final savedViewMode = await loadProperty(key: _keyViewMode);
-      setState(() {
-        if (savedViewMode.isNotEmpty) {
-          _viewMode = savedViewMode;
-        }
-      });
-      // 页面数据在分类标签（含 GBK 编码链接）就绪后再加载（见 _applyTagsJson）。
-    } catch (e) {
-      // 如果加载失败，使用默认值
-    }
+      if (mounted && savedViewMode.isNotEmpty) {
+        setState(() => _viewMode = savedViewMode);
+      }
+    } catch (_) {}
   }
 
   Future<void> _saveState() async {
@@ -76,45 +55,34 @@ class _CategoryPageState extends State<CategoryPage> {
         await saveProperty(key: _keyTag, value: _selectedTag!);
       }
       await saveProperty(key: _keyViewMode, value: _viewMode);
-    } catch (e) {
-      // 如果保存失败，继续使用当前状态
-    }
-  }
-
-  Future<void> _loadTags() async {
-    // 分类列表页 tags.php 会被 Cloudflare 拦截，直接用 WebView 抓取，
-    // 这样同时能拿到站点生成的、已按 GBK 编码的标签链接。
-    Log.info('CategoryPage', 'load tags via WebView');
-    await _prepareApiHost();
-    if (!mounted) return;
-    setState(() => _tagsWebViewActive = true);
-  }
-
-  Future<void> _prepareApiHost() async {
-    try {
-      final host = await getApiHost();
-      _apiHost = host.isEmpty ? 'https://www.wenku8.net' : host;
     } catch (_) {}
   }
 
-  void _applyTagsJson(String json) {
-    try {
-      final result = Wenku8Parse.tagGroups(json);
-      Log.info(
-        'CategoryPage',
-        'webview tags ok: ${result.groups.length} groups',
-      );
-      if (!mounted) return;
+  /// 加载分类标签（统一走 [Wenku8Repo]，不再自建 WebView、不再先撞 Rust）。
+  Future<void> _loadTags() async {
+    Log.info('CategoryPage', 'load tags via Wenku8Repo');
+    if (mounted) {
       setState(() {
-        _tagGroups = result.groups;
-        _tagHrefs
-          ..clear()
-          ..addAll(result.hrefs);
-        _tagsWebViewActive = false;
+        _isLoading = true;
         _errorMessage = null;
       });
-      // 若尚未选择标签，自动选中第一个可用标签，避免空白页。
-      if (_selectedTag == null && result.groups.isNotEmpty) {
+    }
+    try {
+      final result = await Wenku8Repo.instance.tagGroups();
+      if (!mounted) return;
+      if (result.groups.isEmpty) {
+        setState(() {
+          _isLoading = false;
+          _errorMessage = '加载分类失败，请下拉刷新重试';
+        });
+        return;
+      }
+      setState(() {
+        _tagGroups = result.groups;
+        _isLoading = false;
+        _errorMessage = null;
+      });
+      if (_selectedTag == null) {
         final firstTag = result.groups
             .expand((g) => g.tags)
             .firstWhere((t) => t.isNotEmpty, orElse: () => '');
@@ -127,17 +95,17 @@ class _CategoryPageState extends State<CategoryPage> {
         _loadTagPage(_selectedTag!, refresh: true);
       }
     } catch (e, s) {
-      Log.error('CategoryPage', 'parse tags json failed: $e', s);
+      Log.error('CategoryPage', 'load tags failed: $e', s);
       if (!mounted) return;
       setState(() {
-        _tagsWebViewActive = false;
-        _errorMessage = '解析分类失败: $e';
+        _isLoading = false;
+        _errorMessage = '加载分类失败: $e';
       });
     }
   }
 
   Future<void> _loadTagPage(String tag, {bool refresh = false}) async {
-    if (_isLoading) return;
+    if (_isLoading && !refresh) return;
     setState(() {
       _isLoading = true;
       if (refresh) {
@@ -148,57 +116,21 @@ class _CategoryPageState extends State<CategoryPage> {
 
     final pageNumber = refresh ? 1 : (_currentPage?.currentPage ?? 0) + 1;
     try {
-      final page = await tagPage(
+      final page = await Wenku8Repo.instance.tagPage(
         tag: tag,
         v: _viewMode,
         pageNumber: pageNumber,
       );
-      setState(() {
-        if (refresh) {
-          _currentPage = page;
-        } else {
-          _currentPage = PageStatsNovelCover(
-            currentPage: page.currentPage,
-            maxPage: page.maxPage,
-            records: [..._currentPage!.records, ...page.records],
-          );
-        }
-        _isLoading = false;
-        _errorMessage = null;
-        _pageWebViewActive = false;
-      });
-    } catch (e, s) {
-      Log.error('CategoryPage', 'load tag page failed: $e', s);
-      if (Wenku8Parse.needsWebViewFallback(e)) {
-        await _prepareApiHost();
-        if (!mounted) return;
+      if (!mounted) return;
+      if (page == null) {
         setState(() {
-          _pageWebViewNumber = pageNumber;
-          _pageWebViewRefresh = refresh;
-          _pageWebViewActive = true;
-          _isLoading = true;
-          _errorMessage = null;
-          if (refresh) _currentPage = null;
+          _isLoading = false;
+          if (_currentPage == null) _errorMessage = '加载失败，请下拉刷新重试';
         });
         return;
       }
       setState(() {
-        _isLoading = false;
-        _errorMessage = e.toString();
-      });
-    }
-  }
-
-  void _applyTagPageJson(String json) {
-    try {
-      final page = Wenku8Parse.listPage(json);
-      Log.info(
-        'CategoryPage',
-        'webview tag page ok: ${page.records.length} records',
-      );
-      if (!mounted) return;
-      setState(() {
-        if (_pageWebViewRefresh || _currentPage == null) {
+        if (refresh || _currentPage == null) {
           _currentPage = page;
         } else {
           _currentPage = PageStatsNovelCover(
@@ -208,118 +140,21 @@ class _CategoryPageState extends State<CategoryPage> {
           );
         }
         _isLoading = false;
-        _pageWebViewActive = false;
         _errorMessage = null;
       });
     } catch (e, s) {
-      Log.error('CategoryPage', 'parse tag page json failed: $e', s);
+      Log.error('CategoryPage', 'load tag page failed: $e', s);
       if (!mounted) return;
       setState(() {
         _isLoading = false;
-        _pageWebViewActive = false;
-        _errorMessage = '解析分类页面失败: $e';
+        if (_currentPage == null) _errorMessage = e.toString();
       });
     }
   }
 
-  /// 构造标签页导航脚本：用 form GET 提交，`accept-charset=gbk` 让浏览器按
-  /// GBK 编码标签名（Dart/JS 无 GBK 编码器，只能借浏览器能力）。
-  String _buildTagNavigateJs(String tag, int pageNumber) {
-    final action = jsonEncode('${_apiHost}/modules/article/tags.php');
-    final t = jsonEncode(tag);
-    final v = jsonEncode(_viewMode);
-    final p = jsonEncode(pageNumber.toString());
-    return '''
-(function() {
-  var f = document.createElement('form');
-  f.method = 'GET';
-  f.action = $action;
-  f.acceptCharset = 'gbk';
-  function add(name, value) {
-    var i = document.createElement('input');
-    i.type = 'hidden'; i.name = name; i.value = value;
-    f.appendChild(i);
-  }
-  add('t', $t);
-  add('v', $v);
-  add('page', $p);
-  add('charset', 'gbk');
-  document.body.appendChild(f);
-  f.submit();
-})()
-''';
-  }
-
   @override
   Widget build(BuildContext context) {
-    return Stack(
-      children: [
-        _buildContent(),
-        _buildWebViewLoaders(),
-      ],
-    );
-  }
-
-  Widget _buildWebViewLoaders() {
-    return Positioned(
-      left: 0,
-      top: 0,
-      width: 1,
-      height: 1,
-      child: IgnorePointer(
-        child: Opacity(
-          opacity: 0.01,
-          child: SizedBox(
-            width: 1,
-            height: 1,
-            child: Stack(
-              children: [
-                if (_tagsWebViewActive)
-                  CfPageLoader(
-                    apiHost: _apiHost,
-                    path: '/modules/article/tags.php?charset=gbk',
-                    // fetch 模式（URL 无中文），避免导航触发新的 CF 挑战。
-                    parserJs: Wenku8Js.tagGroups,
-                    onSuccess: _applyTagsJson,
-                    onError: (err) {
-                      Log.error('CategoryPage', 'webview tags error: $err');
-                      if (!mounted) return;
-                      setState(() {
-                        _tagsWebViewActive = false;
-                        _errorMessage = err;
-                      });
-                    },
-                  ),
-                if (_pageWebViewActive && _selectedTag != null)
-                  CfPageLoader(
-                    key: ValueKey(
-                      'cat-page-$_selectedTag-$_viewMode-$_pageWebViewNumber',
-                    ),
-                    apiHost: _apiHost,
-                    path: '/modules/article/tags.php',
-                    navigateInsteadOfFetch: true,
-                    navigateJs: _buildTagNavigateJs(
-                      _selectedTag!,
-                      _pageWebViewNumber,
-                    ),
-                    parserJs: Wenku8Js.listPage,
-                    onSuccess: _applyTagPageJson,
-                    onError: (err) {
-                      Log.error('CategoryPage', 'webview page error: $err');
-                      if (!mounted) return;
-                      setState(() {
-                        _pageWebViewActive = false;
-                        _isLoading = false;
-                        _errorMessage = err;
-                      });
-                    },
-                  ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
+    return _buildContent();
   }
 
   Widget _buildContent() {
@@ -345,15 +180,15 @@ class _CategoryPageState extends State<CategoryPage> {
                     _saveState();
                     setState(() {
                       _viewMode = selection.first;
-                      if (_selectedTag != null) {
-                        _loadTagPage(_selectedTag!, refresh: true);
-                      }
                     });
+                    if (_selectedTag != null) {
+                      _loadTagPage(_selectedTag!, refresh: true);
+                    }
                   },
                 ),
               ),
               // Category selector
-              if (_tagGroups != null)
+              if (_tagGroups != null && _tagGroups!.isNotEmpty)
                 Padding(
                   padding: const EdgeInsets.only(left: 8),
                   child: PopupMenuButton<String>(
@@ -392,7 +227,9 @@ class _CategoryPageState extends State<CategoryPage> {
                     ),
                     itemBuilder: (context) {
                       final items = <PopupMenuEntry<String>>[];
-                      for (final group in _tagGroups!) {
+                      final groups = _tagGroups!;
+                      for (var gi = 0; gi < groups.length; gi++) {
+                        final group = groups[gi];
                         items.add(
                           PopupMenuItem<String>(
                             enabled: false,
@@ -431,16 +268,14 @@ class _CategoryPageState extends State<CategoryPage> {
                             ),
                           );
                         }
-                        if (group != _tagGroups!.last) {
+                        if (gi != groups.length - 1) {
                           items.add(const PopupMenuDivider());
                         }
                       }
                       return items;
                     },
                     onSelected: (tag) async {
-                      setState(() {
-                        _selectedTag = tag;
-                      });
+                      setState(() => _selectedTag = tag);
                       _loadTagPage(tag, refresh: true);
                       _saveState();
                     },
@@ -450,12 +285,7 @@ class _CategoryPageState extends State<CategoryPage> {
                 Padding(
                   padding: const EdgeInsets.only(left: 8),
                   child: TextButton.icon(
-                    onPressed: () {
-                      setState(() {
-                        _errorMessage = null;
-                      });
-                      _loadTags();
-                    },
+                    onPressed: _loadTags,
                     icon: const Icon(Icons.refresh),
                     label: const Text('重试加载分类'),
                     style: TextButton.styleFrom(
@@ -479,10 +309,15 @@ class _CategoryPageState extends State<CategoryPage> {
         Expanded(
           child:
               _selectedTag == null
-                  ? const Center(child: Text('请选择分类'))
+                  ? Center(
+                    child:
+                        _isLoading
+                            ? const CircularProgressIndicator()
+                            : const Text('请选择分类'),
+                  )
                   : _errorMessage != null
                   ? RefreshIndicator(
-                    onRefresh: () => _loadTagPage(_selectedTag!, refresh: true),
+                    onRefresh: () => _loadTags(),
                     child: ListView(
                       padding: const EdgeInsets.all(16),
                       children: [

@@ -1,10 +1,8 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:wild/services/webview_fetcher.dart';
-import 'package:wild/src/rust/api/wenku8.dart' as wenku8;
+import 'package:wild/services/wenku8_repo.dart';
 import 'package:wild/src/rust/wenku8/models.dart';
 import 'package:wild/utils/log.dart';
 import 'package:wild/utils/wenku8_parse.dart';
-import 'package:wild/widgets/wenku8_js.dart';
 
 enum AccountStatus { initial, loading, loaded, error }
 
@@ -42,34 +40,9 @@ class AccountCubit extends Cubit<AccountState> {
 
     emit(state.copyWith(status: AccountStatus.loading));
 
-    // 1) Rust 端（未受 Cloudflare 影响时可用）
+    // 统一走 [Wenku8Repo]（唯一常驻 WebView 会话）。
     try {
-      final userDetail = await wenku8.userDetail();
-      Log.info('AccountCubit', 'rust userDetail ok');
-      emit(
-        state.copyWith(status: AccountStatus.loaded, userDetail: userDetail),
-      );
-      return;
-    } catch (e, s) {
-      Log.error('AccountCubit', 'rust userDetail failed: $e', s);
-      if (!Wenku8Parse.needsWebViewFallback(e)) {
-        emit(
-          state.copyWith(status: AccountStatus.error, errorMessage: e.toString()),
-        );
-        return;
-      }
-    }
-
-    // 2) WebView 兜底（绕过 Cloudflare）
-    try {
-      final host = await wenku8.getApiHost();
-      WebViewFetcher.instance.setApiHost(
-        host.isEmpty ? 'https://www.wenku8.net' : host,
-      );
-      final json = await WebViewFetcher.instance.fetchParsed(
-        '/userdetail.php?charset=gbk',
-        Wenku8Js.userDetail,
-      );
+      final json = await Wenku8Repo.instance.userDetail();
       if (json == null || json.isEmpty) {
         emit(
           state.copyWith(
@@ -80,10 +53,10 @@ class AccountCubit extends Cubit<AccountState> {
         return;
       }
       final detail = Wenku8Parse.userDetail(json);
-      Log.info('AccountCubit', 'webview userDetail ok: ${detail.username}');
+      Log.info('AccountCubit', 'userDetail ok: ${detail.username}');
       emit(state.copyWith(status: AccountStatus.loaded, userDetail: detail));
     } catch (e, s) {
-      Log.error('AccountCubit', 'webview userDetail failed: $e', s);
+      Log.error('AccountCubit', 'userDetail failed: $e', s);
       emit(
         state.copyWith(
           status: AccountStatus.error,

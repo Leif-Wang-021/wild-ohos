@@ -5,9 +5,14 @@
 /// `window.__doc`，因此各脚本统一从 `window.__doc` 读取文档；若为空则回退到
 /// 当前 document。返回值均为 JSON 字符串，结构与 Rust 端 `client.rs` 保持一致。
 class Wenku8Js {
-  /// 取文档根：优先 `window.__doc`（fetch 回来的目标页），否则当前 document。
+  /// 取文档根（双模式，供两种抓取路径复用同一份解析脚本）：
+  /// 1. `WebViewFetcher.fetchParsedEx`：作用域内有 `html`（已按 GBK 解码），解析之；
+  /// 2. `CfPageLoader`：无 `html`，回退到 `window.__doc`（fetch 回来的目标页），
+  ///    再回退到当前 `document`。
   static const String _docPrelude = r'''
-var __root = (window.__doc && window.__doc.querySelector) ? window.__doc : document;
+var __root = (typeof html !== 'undefined' && html)
+  ? new DOMParser().parseFromString(html, 'text/html')
+  : ((window.__doc && window.__doc.querySelector) ? window.__doc : document);
 ''';
 
   /// 用户详情页（userdetail.php）：返回用户信息 JSON。

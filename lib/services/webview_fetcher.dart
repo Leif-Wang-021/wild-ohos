@@ -260,6 +260,56 @@ class WebViewFetcher {
     return res.text;
   }
 
+  /// 导航到目标页后解析（浏览器按页面 charset 编码链接）。
+  ///
+  /// 用于标签名等含中文、需按 GBK 百分号编码的 URL：Dart/JS 均无 GBK 编码器，
+  /// 只能借浏览器表单提交能力（[navigateJs] 在已过挑战的页面执行）。
+  Future<FetchResult> navigateParsedEx(
+    String path,
+    String parserJs, {
+    String? navigateJs,
+  }) {
+    return _serial(() async {
+      await ensureReady();
+      if (!_ready) return FetchResult(null, 'not_ready');
+      final url = _absolute(path);
+      try {
+        _navCompleter = Completer<void>();
+        if (navigateJs != null) {
+          await controller.runJavaScript(navigateJs);
+        } else {
+          await controller.loadRequest(Uri.parse(url));
+        }
+        try {
+          await _navCompleter!.future.timeout(const Duration(seconds: 20));
+        } catch (_) {}
+
+        // 目标页可能再次触发挑战，轮询等待就绪。
+        for (int i = 0; i < 15; i++) {
+          final r = await _safeJs(_jsChallenge);
+          if (r == 'ok') {
+            final ready = await _safeJs(
+              '(document.body && document.body.innerText.length > 50) ? "yes" : "no"',
+            );
+            if (ready == 'yes') break;
+          }
+          if (i == 5 || i == 10) {
+            await controller.loadRequest(Uri.parse(url));
+            await Future.delayed(const Duration(seconds: 2));
+          }
+          await Future.delayed(const Duration(milliseconds: 800));
+        }
+
+        final raw = await controller.runJavaScriptReturningResult(parserJs);
+        final json = _stripJsonString(raw.toString());
+        return FetchResult(json.isEmpty ? null : json, 'ok');
+      } catch (e) {
+        Log.error('WebViewFetcher', 'navigateParsed $url error: $e');
+        return FetchResult(null, 'error');
+      }
+    });
+  }
+
   String _fetchParseJs(String url, String parserJs) => r'''
 (function() {
   window.__fetcherState = 'loading';
