@@ -52,7 +52,7 @@ class AccountCubit extends Cubit<AccountState> {
       return;
     } catch (e, s) {
       Log.error('AccountCubit', 'rust userDetail failed: $e', s);
-      if (!Wenku8Parse.isCloudflare(e)) {
+      if (!Wenku8Parse.needsWebViewFallback(e)) {
         emit(
           state.copyWith(status: AccountStatus.error, errorMessage: e.toString()),
         );

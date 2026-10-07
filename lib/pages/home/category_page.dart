@@ -169,7 +169,7 @@ class _CategoryPageState extends State<CategoryPage> {
       });
     } catch (e, s) {
       Log.error('CategoryPage', 'load tag page failed: $e', s);
-      if (Wenku8Parse.isCloudflare(e)) {
+      if (Wenku8Parse.needsWebViewFallback(e)) {
         await _prepareApiHost();
         if (!mounted) return;
         setState(() {

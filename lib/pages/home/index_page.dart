@@ -215,7 +215,7 @@ class _ToplistPageState extends State<ToplistPage> {
       });
     } catch (e, s) {
       Log.error('ToplistPage', 'load toplist failed: $e', s);
-      if (Wenku8Parse.isCloudflare(e)) {
+      if (Wenku8Parse.needsWebViewFallback(e)) {
         await _prepareApiHost();
         if (!mounted) return;
         setState(() {
@@ -478,7 +478,7 @@ class _ArticlelistPageState extends State<ArticlelistPage> {
       });
     } catch (e, s) {
       Log.error('ArticlelistPage', 'load articlelist failed: $e', s);
-      if (Wenku8Parse.isCloudflare(e)) {
+      if (Wenku8Parse.needsWebViewFallback(e)) {
         await _prepareApiHost();
         if (!mounted) return;
         setState(() {

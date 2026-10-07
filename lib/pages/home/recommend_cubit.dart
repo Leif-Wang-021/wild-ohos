@@ -42,7 +42,7 @@ class RecommendCubit extends Cubit<RecommendState> {
       emit(RecommendLoaded(blocks));
     } catch (e, s) {
       Log.error('RecommendCubit', 'rust index failed: $e', s);
-      if (Wenku8Parse.isCloudflare(e)) {
+      if (Wenku8Parse.needsWebViewFallback(e)) {
         try {
           final host = await w8.getApiHost();
           _apiHost = host.isEmpty ? 'https://www.wenku8.net' : host;
@@ -58,6 +58,10 @@ class RecommendCubit extends Cubit<RecommendState> {
 
   /// WebView 成功抓取后由 UI 层调用。
   void applyWebViewJson(String json) {
+    Log.info(
+      'RecommendCubit',
+      'webview index raw len=${json.length} head=${json.length > 200 ? json.substring(0, 200) : json}',
+    );
     try {
       final blocks = Wenku8Parse.homeBlocks(json);
       Log.info('RecommendCubit', 'webview index ok: ${blocks.length} blocks');

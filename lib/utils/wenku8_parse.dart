@@ -61,13 +61,22 @@ class Wenku8Parse {
         names.add(name);
         if (href.isNotEmpty) hrefs[name] = href;
       }
-      if (names.isNotEmpty) {
-        groups.add(
-          TagGroup(title: (g['title'] ?? '') as String, tags: names),
-        );
+      final title = (g['title'] ?? '') as String;
+      if (names.isNotEmpty && !_isTagNoise(title)) {
+        groups.add(TagGroup(title: title, tags: names));
       }
     }
     return TagParseResult(groups, hrefs);
+  }
+
+  /// 过滤站点 tags.php 里的帮助/说明等非分类文本（会被误当成分组标题）。
+  static bool _isTagNoise(String title) {
+    if (title.isEmpty) return true;
+    const noise = ['检索服务', '使用指南', '说明', '帮助', '指南', 'Tags'];
+    for (final n in noise) {
+      if (title.contains(n)) return true;
+    }
+    return false;
   }
 
   /// 小说详情页：转换为 [NovelInfo]。
@@ -186,5 +195,27 @@ class Wenku8Parse {
         msg.contains('cf_');
     if (cf) Log.info('Wenku8Parse', 'cloudflare detected: ${msg.split('\n').first}');
     return cf;
+  }
+
+  /// 是否需要回退到 WebView 抓取。
+  ///
+  /// 除 Cloudflare 403 外，Rust 端拿到非预期页面（如 CF 挑战页、站点改版）
+  /// 时解析会失败并抛出 `Failed to find ...` 之类的错误，此时同样必须走
+  /// WebView 兜底，否则表现为页面大面积「加载失败」。
+  static bool needsWebViewFallback(Object? error) {
+    if (isCloudflare(error)) return true;
+    final msg = error.toString();
+    final parseFailed =
+        msg.contains('Failed to find') ||
+        msg.contains('Failed to get index') ||
+        msg.contains('Failed to parse') ||
+        msg.contains('error sending request');
+    if (parseFailed) {
+      Log.info(
+        'Wenku8Parse',
+        'parse/network fallback: ${msg.split('\n').first}',
+      );
+    }
+    return parseFailed;
   }
 }

@@ -115,7 +115,7 @@ class NovelInfoCubit extends Cubit<NovelInfoState> {
       Log.error('NovelInfoCubit', 'load failed: $e', s);
       // 已有本地**目录**时静默保留；仅有元数据则继续走 WebView 兜底补目录。
       if (hasVolumes) return;
-      if (Wenku8Parse.isCloudflare(e)) {
+      if (Wenku8Parse.needsWebViewFallback(e)) {
         try {
           final host = await w8.getApiHost();
           _apiHost = host.isEmpty ? 'https://www.wenku8.net' : host;
