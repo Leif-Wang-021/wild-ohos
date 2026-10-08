@@ -45,7 +45,7 @@ class NovelDownloadManager {
     if (_root != null) return _root!;
     final base = await _dataRoot();
     final dir = Directory('$base${Platform.pathSeparator}download');
-    if (!dir.existsSync()) dir.createSync(recursive: true);
+    if (!await dir.exists()) await dir.create(recursive: true);
     _root = dir.path;
     return _root!;
   }
@@ -56,21 +56,32 @@ class NovelDownloadManager {
   }
 
   File chapterFile(String root, String novelId, String cid) {
+    // 只计算路径，不做同步 exists/create（避免读路径上的同步 I/O 卡顿）。
+    // 需要写入时由调用方确保目录存在（见 _ensureNovelDir）。
+    return File(
+      '$root${Platform.pathSeparator}$novelId${Platform.pathSeparator}chapter_$cid.txt',
+    );
+  }
+
+  /// 确保某本小说的下载目录存在（仅写入前调用）。
+  Future<void> _ensureNovelDir(String root, String novelId) async {
     final dir = Directory('$root${Platform.pathSeparator}$novelId');
-    if (!dir.existsSync()) dir.createSync(recursive: true);
-    return File('${dir.path}${Platform.pathSeparator}chapter_$cid.txt');
+    if (!await dir.exists()) {
+      await dir.create(recursive: true);
+    }
   }
 
   File _metaFile(String root, String novelId) {
-    final dir = Directory('$root${Platform.pathSeparator}$novelId');
-    if (!dir.existsSync()) dir.createSync(recursive: true);
-    return File('${dir.path}${Platform.pathSeparator}meta.json');
+    return File(
+      '$root${Platform.pathSeparator}$novelId${Platform.pathSeparator}meta.json',
+    );
   }
 
   /// 写入/更新小说元数据（名称、封面、章节数），供存储管理页显示名称。
   Future<void> _writeMeta(NovelDownloadTask task) async {
     try {
       final root = await _downloadRoot();
+      await _ensureNovelDir(root, task.novelId);
       final f = _metaFile(root, task.novelId);
       final json = jsonEncode({
         'novelId': task.novelId,
@@ -93,6 +104,7 @@ class NovelDownloadManager {
   ) async {
     try {
       final root = await _downloadRoot();
+      await _ensureNovelDir(root, task.novelId);
       final f = _manifestFile(root, task.novelId);
       final json = jsonEncode({
         'novelId': task.novelId,
@@ -141,9 +153,9 @@ class NovelDownloadManager {
   }
 
   File _manifestFile(String root, String novelId) {
-    final dir = Directory('$root${Platform.pathSeparator}$novelId');
-    if (!dir.existsSync()) dir.createSync(recursive: true);
-    return File('${dir.path}${Platform.pathSeparator}manifest.json');
+    return File(
+      '$root${Platform.pathSeparator}$novelId${Platform.pathSeparator}manifest.json',
+    );
   }
 
   /// 读取本地 manifest（离线重建阅读器用的完整信息 + 目录）。
@@ -151,7 +163,7 @@ class NovelDownloadManager {
     try {
       final root = await _downloadRoot();
       final f = _manifestFile(root, novelId);
-      if (f.existsSync()) {
+      if (await f.exists()) {
         return jsonDecode(await f.readAsString()) as Map<String, dynamic>;
       }
     } catch (e) {
@@ -166,8 +178,8 @@ class NovelDownloadManager {
     try {
       final root = await _downloadRoot();
       final dir = Directory(root);
-      if (dir.existsSync()) {
-        for (final entry in dir.listSync()) {
+      if (await dir.exists()) {
+        await for (final entry in dir.list()) {
           if (entry is Directory) {
             out.add(entry.path.split(Platform.pathSeparator).last);
           }
@@ -184,7 +196,7 @@ class NovelDownloadManager {
     try {
       final root = await _downloadRoot();
       final f = _metaFile(root, novelId);
-      if (f.existsSync()) {
+      if (await f.exists()) {
         return jsonDecode(await f.readAsString()) as Map<String, dynamic>;
       }
     } catch (e) {
@@ -193,12 +205,24 @@ class NovelDownloadManager {
     return null;
   }
 
-  /// 读取本地已下载章节内容（离线阅读）。
+  /// 章节内容内存缓存：`novelId/cid -> 正文`，避免重复读盘。
+  final Map<String, String> _chapterMem = {};
+
+  String _chapterKey(String novelId, String cid) => '$novelId/$cid';
+
+  /// 读取本地已下载章节内容（离线阅读）。使用异步 I/O 避免阻塞 UI。
   Future<String?> readLocalChapter(String novelId, String cid) async {
+    final key = _chapterKey(novelId, cid);
+    final cached = _chapterMem[key];
+    if (cached != null && cached.isNotEmpty) return cached;
     try {
       final root = await _downloadRoot();
       final f = chapterFile(root, novelId, cid);
-      if (f.existsSync()) return f.readAsString();
+      if (await f.exists()) {
+        final text = await f.readAsString();
+        if (text.isNotEmpty) _chapterMem[key] = text;
+        return text;
+      }
     } catch (e) {
       Log.warning('DownloadManager', 'read local chapter failed: $e');
     }
@@ -209,7 +233,7 @@ class NovelDownloadManager {
   Future<bool> hasLocalChapter(String novelId, String cid) async {
     try {
       final root = await _downloadRoot();
-      return chapterFile(root, novelId, cid).existsSync();
+      return chapterFile(root, novelId, cid).exists();
     } catch (_) {
       return false;
     }
@@ -261,7 +285,7 @@ class NovelDownloadManager {
       final root = await _downloadRoot();
       for (final c in task.chapters) {
         if (c.status == ChapterDownloadStatus.success) continue;
-        if (chapterFile(root, task.novelId, c.cid).existsSync()) {
+        if (await chapterFile(root, task.novelId, c.cid).exists()) {
           c.status = ChapterDownloadStatus.success;
         }
       }
@@ -326,8 +350,10 @@ class NovelDownloadManager {
       );
       if (content != null && content.isNotEmpty) {
         try {
+          await _ensureNovelDir(root, task.novelId);
           final f = chapterFile(root, task.novelId, chapter.cid);
           await f.writeAsString(content);
+          _chapterMem[_chapterKey(task.novelId, chapter.cid)] = content;
           chapter.status = ChapterDownloadStatus.success;
           downloaded++;
           task.downloadedCount = downloaded;
@@ -478,7 +504,8 @@ class NovelDownloadManager {
     try {
       final root = await _downloadRoot();
       final dir = Directory('$root${Platform.pathSeparator}$novelId');
-      if (dir.existsSync()) dir.deleteSync(recursive: true);
+      if (await dir.exists()) await dir.delete(recursive: true);
+      _chapterMem.remove(novelId);
     } catch (e) {
       Log.warning('DownloadManager', 'delete task dir failed: $e');
     }

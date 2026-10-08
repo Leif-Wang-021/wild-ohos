@@ -454,10 +454,16 @@ impl Wenku8Client {
             .collect();
         novel_info.tags = tag;
 
+        // 动画化标记：站点在标签区额外放一个文本含「动画」的 span。
+        // 不能仅凭 span 数量判断（几乎每本书都有多个 span，会全部误判）。
         if let Some(table) = content.select(&table_selector).nth(2) {
             if let Some(td) = table.select(&td_selector).nth(1) {
-                if let Some(_) = td.select(&span_selector).nth(1) {
-                    novel_info.is_animated = true;
+                for span in td.select(&span_selector) {
+                    let text: String = span.text().collect();
+                    if text.contains("动画") {
+                        novel_info.is_animated = true;
+                        break;
+                    }
                 }
             }
         }

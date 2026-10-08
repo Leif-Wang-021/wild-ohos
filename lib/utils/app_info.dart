@@ -19,13 +19,13 @@ class AppInfo {
     _buildNumber = _packageInfo?.buildNumber;
   }
 
-  /// 获取应用版本号 (例如: 0.0.15)
+  /// 获取应用版本号 (例如: 0.0.16)
   static String get version => _version ?? AppVersion.version;
 
   /// 获取构建号 (例如: 15)
   static String get buildNumber => _buildNumber ?? AppVersion.buildNumber;
 
-  /// 获取完整版本号 (例如: 0.0.15+15)
+  /// 获取完整版本号 (例如: 0.0.16+16)
   static String get fullVersion => AppVersion.full;
 
   /// 获取应用名称

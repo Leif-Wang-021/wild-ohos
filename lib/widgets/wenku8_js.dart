@@ -283,7 +283,11 @@ var __root = (typeof html !== 'undefined' && html)
         var tagText = txt(t2spans[0]);
         out.tags = skip(tagText, 7).split(' ').filter(function(x) { return x.length > 0; });
       }
-      if (t2spans.length > 1) out.isAnimated = true;
+      // 动画化标记：站点在标签区额外放一个文本含「动画」的 span。
+      // 不能仅凭 span 数量判断（几乎每本书都有多个 span，会全部误判）。
+      for (var si = 0; si < t2spans.length; si++) {
+        if (txt(t2spans[si]).indexOf('动画') >= 0) { out.isAnimated = true; break; }
+      }
     }
   }
   return JSON.stringify(out);
@@ -334,7 +338,10 @@ var __root = (typeof html !== 'undefined' && html)
         var tagText = txt(t2spans[0]);
         out.tags = skip(tagText, 7).split(' ').filter(function(x) { return x.length > 0; });
       }
-      if (t2spans.length > 1) out.isAnimated = true;
+      // 动画化标记：站点在标签区额外放一个文本含「动画」的 span。
+      for (var si2 = 0; si2 < t2spans.length; si2++) {
+        if (txt(t2spans[si2]).indexOf('动画') >= 0) { out.isAnimated = true; break; }
+      }
     }
   }
   return JSON.stringify(out);

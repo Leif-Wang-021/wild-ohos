@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:wild/models/reader_page.dart';
@@ -84,7 +86,7 @@ class ReaderCubit extends Cubit<ReaderState> {
       final lineHeight = lineHeightCubit.state;
 
       // 分页内容
-      final pages = _paginateContent(
+      final pages = await _paginateContent(
         targetAid,
         targetCid,
         chapterTitle,
@@ -93,6 +95,7 @@ class ReaderCubit extends Cubit<ReaderState> {
         paragraphSpacing,
         lineHeight,
       );
+      if (isClosed) return;
 
       // 验证并设置初始页码
       int pageIndex = 0;
@@ -105,20 +108,10 @@ class ReaderCubit extends Cubit<ReaderState> {
       // 计算从第一页到当前页的累计字数
       final characterCount = _calculateCharacterCountUpToPage(pages, pageIndex);
 
-      // 更新阅读历史
-      await updateHistory(
-        novelId: targetAid,
-        novelName: novelInfo.title,
-        volumeId: volume.id,
-        volumeName: volume.title,
-        chapterId: targetCid,
-        chapterTitle: chapterTitle,
-        progress: characterCount,
-        progressPage: pageIndex,
-        cover: novelInfo.imgUrl,
-        author: novelInfo.author,
-      );
+      if (isClosed) return;
 
+      // 先 emit 渲染页面，避免等待本地数据库写入造成进入阅读的卡顿；
+      // 历史记录随后异步写入（失败不影响阅读）。
       emit(
         ReaderLoaded(
           aid: targetAid,
@@ -128,6 +121,21 @@ class ReaderCubit extends Cubit<ReaderState> {
           pages: pages,
           currentPageIndex: pageIndex,
           showControls: super.state.showControls,
+        ),
+      );
+
+      unawaited(
+        updateHistory(
+          novelId: targetAid,
+          novelName: novelInfo.title,
+          volumeId: volume.id,
+          volumeName: volume.title,
+          chapterId: targetCid,
+          chapterTitle: chapterTitle,
+          progress: characterCount,
+          progressPage: pageIndex,
+          cover: novelInfo.imgUrl,
+          author: novelInfo.author,
         ),
       );
     } catch (e) {
@@ -156,7 +164,7 @@ class ReaderCubit extends Cubit<ReaderState> {
       final paragraphSpacing = paragraphSpacingCubit.state;
       final lineHeight = lineHeightCubit.state;
 
-      final pages = _paginateContent(
+      final pages = await _paginateContent(
         targetAid,
         targetCid,
         chapterTitle,
@@ -165,6 +173,7 @@ class ReaderCubit extends Cubit<ReaderState> {
         paragraphSpacing,
         lineHeight,
       );
+      if (isClosed) return;
 
       if (currentPageIndex >= pages.length) {
         currentPageIndex = pages.length - 1;
@@ -318,7 +327,12 @@ class ReaderCubit extends Cubit<ReaderState> {
     return totalCharacters;
   }
 
-  List<ReaderPage> _paginateContent(
+  /// 分页内容。
+  ///
+  /// 分页需要对每个段落做 `TextPainter.layout`，是重计算。这里改为**异步**
+  /// 并在处理段落时周期性让出事件循环，避免一次性阻塞 UI 线程导致进入
+  /// 阅读界面时的明显卡顿。
+  Future<List<ReaderPage>> _paginateContent(
     String aid,
     String cid,
     String title,
@@ -326,7 +340,7 @@ class ReaderCubit extends Cubit<ReaderState> {
     double fontSize,
     double paragraphSpacing,
     double lineHeight,
-  ) {
+  ) async {
     final pages = <ReaderPage>[];
     final paragraphs = content.split('\n');
     final screenWidth = MediaQueryData.fromView(
@@ -410,6 +424,7 @@ class ReaderCubit extends Cubit<ReaderState> {
     }
 
     final imageRegex = RegExp(r'<!--image-->([^<]+)<!--image-->');
+    var processed = 0;
     for (var paragraph in paragraphs) {
       var remaining = paragraph;
       while (true) {
@@ -432,6 +447,13 @@ class ReaderCubit extends Cubit<ReaderState> {
       final tail = remaining.trim();
       if (tail.isNotEmpty) {
         putParagraph(tail);
+      }
+
+      // 每处理若干段落让出事件循环，保持 UI 响应流畅。
+      processed++;
+      if (processed % 40 == 0) {
+        await Future.delayed(Duration.zero);
+        if (isClosed) return pages;
       }
     }
 

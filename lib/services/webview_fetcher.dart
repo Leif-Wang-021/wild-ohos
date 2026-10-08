@@ -26,8 +26,15 @@ class WebViewFetcher {
   bool _ready = false;
   Completer<void>? _navCompleter;
 
-  /// 串行锁：所有抓取依次执行，避免并发导航互相干扰。
-  Future<void> _lock = Future<void>.value();
+  /// 任务队列（单一 WebView 会话只能串行执行）。
+  final List<_FetchJob> _queue = [];
+  bool _draining = false;
+
+  /// 最近一次前台活动时间。后台任务需等待「静默期」后才执行，避免打断操作。
+  DateTime _lastInteractiveAt = DateTime.fromMillisecondsSinceEpoch(0);
+
+  /// 后台任务执行前需要的静默时长。
+  static const Duration _quietPeriod = Duration(seconds: 2);
 
   bool get isAttached => _controller != null;
   bool get isReady => _ready;
@@ -188,17 +195,91 @@ class WebViewFetcher {
     Log.info('WebViewFetcher', 'ready=$_ready');
   }
 
+  /// 交互请求数量：>0 表示用户正在前台等待（如打开详情、进入阅读）。
+  int _interactiveCount = 0;
+
+  /// 以「交互优先级」执行：期间后台预取会主动让路，避免抢占网络队列
+  /// 导致前台操作卡顿。
+  Future<T> runInteractive<T>(Future<T> Function() task) async {
+    _interactiveCount++;
+    try {
+      return await task();
+    } finally {
+      _interactiveCount--;
+    }
+  }
+
   /// 串行执行一个抓取任务。
-  Future<T> _serial<T>(Future<T> Function() task) {
+  ///
+  /// 所有请求共用唯一 WebView 会话，故必须串行。为避免后台预取霸占队列
+  /// 拖慢前台操作，前台任务（[interactive] = true）运行期间会登记为交互态，
+  /// 后台任务（[interactive] = false）在此期间主动让路。
+  /// 优先级队列执行：
+  /// - 前台（[interactive]=true）请求**插队**到所有后台任务之前，保证用户
+  ///   操作（打开详情、进入阅读）立刻得到响应；
+  /// - 后台任务（预取）只有在「无前台等待 + 前台静默 2 秒」时才执行，
+  ///   避免霸占唯一 WebView 会话拖慢前台。
+  Future<T> _serial<T>(Future<T> Function() task, {bool interactive = true}) {
     final completer = Completer<T>();
-    _lock = _lock.then((_) async {
+    // 用闭包捕获 completer，避免泛型擦除。
+    final job = _FetchJob(() async {
       try {
         completer.complete(await task());
       } catch (e, s) {
         completer.completeError(e, s);
       }
-    });
+    }, interactive);
+    if (interactive) {
+      _lastInteractiveAt = DateTime.now();
+      // 插到第一个后台任务之前（保持前台之间的 FIFO）。
+      final idx = _queue.indexWhere((j) => !j.interactive);
+      if (idx < 0) {
+        _queue.add(job);
+      } else {
+        _queue.insert(idx, job);
+      }
+    } else {
+      _queue.add(job);
+    }
+    _drain();
     return completer.future;
+  }
+
+  void _drain() {
+    if (_draining) return;
+    _draining = true;
+    unawaited(_drainLoop());
+  }
+
+  Future<void> _drainLoop() async {
+    try {
+      while (_queue.isNotEmpty) {
+        final job = _queue.first;
+        if (!job.interactive) {
+          // 前台有等待任务，或刚有前台活动，则先让路。
+          final hasInteractiveWaiting = _queue.any((j) => j.interactive);
+          final since = DateTime.now().difference(_lastInteractiveAt);
+          if (hasInteractiveWaiting || _interactiveCount > 0 || since < _quietPeriod) {
+            await Future.delayed(const Duration(milliseconds: 200));
+            continue;
+          }
+        }
+        _queue.removeAt(0);
+        if (job.interactive) {
+          _lastInteractiveAt = DateTime.now();
+          _interactiveCount++;
+        }
+        try {
+          await job.task();
+        } finally {
+          if (job.interactive) _interactiveCount--;
+        }
+      }
+    } finally {
+      _draining = false;
+      // 期间可能又有新任务入队。
+      if (_queue.isNotEmpty) _drain();
+    }
   }
 
   String _absolute(String pathOrUrl) {
@@ -210,11 +291,13 @@ class WebViewFetcher {
   }
 
   /// 抓取原始字节（图片等）。
-  Future<Uint8List?> fetchBytes(String url) {
+  ///
+  /// [background] 为 true 时作为后台任务：前台忙碌时让路，避免卡顿。
+  Future<Uint8List?> fetchBytes(String url, {bool background = false}) {
     return _serial(() async {
       final res = await _fetch(_absolute(url));
       return res.bytes;
-    });
+    }, interactive: !background);
   }
 
   /// 抓取站内路径的原始字节。
@@ -226,7 +309,13 @@ class WebViewFetcher {
   }
 
   /// 抓取结果：文本 + 状态（`ok` / `http:429` / `error:…` / `timeout`）。
-  Future<FetchResult> fetchParsedEx(String pathOrUrl, String parserJs) {
+  ///
+  /// [background] 为 true 时作为后台任务：前台忙碌时让路，避免卡顿。
+  Future<FetchResult> fetchParsedEx(
+    String pathOrUrl,
+    String parserJs, {
+    bool background = false,
+  }) {
     return _serial(() async {
       await ensureReady();
       if (!_ready) return FetchResult(null, 'not_ready');
@@ -248,7 +337,7 @@ class WebViewFetcher {
         Log.error('WebViewFetcher', 'fetchParsed $url error: $e');
         return FetchResult(null, 'error');
       }
-    });
+    }, interactive: !background);
   }
 
   /// 抓取页面后，在 WebView 内执行 [parserJs] 解析并返回结果字符串。
@@ -416,4 +505,12 @@ class FetchResult {
 
   /// 是否被限流（HTTP 429）。
   bool get isRateLimited => state == 'http:429';
+}
+
+/// 队列中的一个抓取任务。任务本身负责完成对应的 completer。
+class _FetchJob {
+  final Future<void> Function() task;
+  final bool interactive;
+
+  _FetchJob(this.task, this.interactive);
 }

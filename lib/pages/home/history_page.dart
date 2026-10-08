@@ -1,7 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:wild/services/offline_library.dart';
+import 'package:wild/services/wenku8_repo.dart';
 import 'package:wild/src/rust/api/wenku8.dart' as w8;
+import 'package:wild/src/rust/wenku8/models.dart';
+import 'package:wild/utils/log.dart';
 import 'package:wild/widgets/cached_image.dart';
 import 'package:intl/intl.dart';
 
@@ -191,62 +196,77 @@ class _HistoryItem extends StatelessWidget {
                     const SizedBox(height: 8),
                     InkWell(
                       onTap: () async {
-                        try {
-                          // 优先联网获取小说信息和章节信息
-                          final novelInfo = await w8.novelInfo(aid: history.novelId);
-                          final volumes = await w8.novelReader(aid: history.novelId);
+                        // 本地优先后台刷新（stale-while-revalidate）：
+                        // 1) 先用本地已缓存/已下载内容**立即**进入阅读，避免联网等待卡顿；
+                        // 2) 本地没有时才联网获取；
+                        // 3) 联网成功后刷新本地缓存，供下次秒开。
+                        List<Volume>? volumes;
+                        NovelInfo? novelInfo;
 
-                          if (!context.mounted) return;
+                        final offline = await OfflineLibrary.instance.load(
+                          history.novelId,
+                        );
+                        if (offline != null && offline.volumes.isNotEmpty) {
+                          volumes = offline.volumes;
+                          novelInfo = offline.info;
+                        }
 
-                          await Navigator.pushNamed(
-                            context,
-                            '/novel/reader',
-                            arguments: {
-                              'novelId': history.novelId,
-                              'chapterId': history.chapterId,
-                              'title': history.chapterTitle,
-                              'volumes': volumes,
-                              'novelInfo': novelInfo,
-                              'initialPage': history.progressPage,
-                            },
-                          );
-                          // 返回后更新历史记录
-                          if (context.mounted) {
-                            historyCubit.load();
-                          }
-                        } catch (e) {
-                          // 联网失败（如断网）时，回退到本地已下载内容离线阅读。
-                          final offline = await OfflineLibrary.instance.load(
-                            history.novelId,
-                          );
-                          if (offline == null) {
-                            if (!context.mounted) return;
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('加载失败，且本书未下载，无法离线阅读'),
-                                duration: Duration(seconds: 2),
-                                behavior: SnackBarBehavior.floating,
-                                margin: EdgeInsets.only(bottom: 16),
-                              ),
+                        if (volumes == null || novelInfo == null) {
+                          // 本地无目录：联网获取（统一走 Wenku8Repo）。
+                          try {
+                            final info =
+                                await Wenku8Repo.instance.novelInfo(
+                              history.novelId,
                             );
-                            return;
+                            final vols =
+                                await Wenku8Repo.instance.novelReader(
+                              history.novelId,
+                            );
+                            if (info != null && vols.isNotEmpty) {
+                              volumes = vols;
+                              novelInfo = info;
+                              unawaited(
+                                OfflineLibrary.instance.cacheShelfDetail(
+                                  history.novelId,
+                                  info,
+                                  vols,
+                                ),
+                              );
+                            }
+                          } catch (e) {
+                            Log.warning('HistoryPage', 'online fetch failed: $e');
                           }
-                          if (!context.mounted) return;
-                          await Navigator.pushNamed(
-                            context,
-                            '/novel/reader',
-                            arguments: {
-                              'novelId': history.novelId,
-                              'chapterId': history.chapterId,
-                              'title': history.chapterTitle,
-                              'volumes': offline.volumes,
-                              'novelInfo': offline.info,
-                              'initialPage': history.progressPage,
-                            },
+                        }
+
+                        if (!context.mounted) return;
+                        if (volumes == null ||
+                            novelInfo == null ||
+                            volumes.isEmpty) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('加载失败，且本书未下载，无法离线阅读'),
+                              duration: Duration(seconds: 2),
+                              behavior: SnackBarBehavior.floating,
+                              margin: EdgeInsets.only(bottom: 16),
+                            ),
                           );
-                          if (context.mounted) {
-                            historyCubit.load();
-                          }
+                          return;
+                        }
+
+                        await Navigator.pushNamed(
+                          context,
+                          '/novel/reader',
+                          arguments: {
+                            'novelId': history.novelId,
+                            'chapterId': history.chapterId,
+                            'title': history.chapterTitle,
+                            'volumes': volumes,
+                            'novelInfo': novelInfo,
+                            'initialPage': history.progressPage,
+                          },
+                        );
+                        if (context.mounted) {
+                          historyCubit.load();
                         }
                       },
                       child: Container(

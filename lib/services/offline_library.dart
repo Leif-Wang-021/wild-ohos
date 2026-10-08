@@ -2,11 +2,9 @@ import 'dart:io';
 
 import 'package:wild/services/download_manager.dart';
 import 'package:wild/services/local_cache.dart';
-import 'package:wild/src/rust/api/wenku8.dart' as w8;
 import 'package:wild/src/rust/wenku8/models.dart';
 import 'package:wild/utils/log.dart';
 import 'package:wild/utils/novel_codec.dart';
-import 'package:wild/utils/shelf_codec.dart';
 
 /// 本地离线书库数据（从下载目录的 manifest.json 重建）。
 class OfflineNovel {
@@ -16,12 +14,19 @@ class OfflineNovel {
   final NovelInfo info;
   final List<Volume> volumes;
 
+  /// 目录是否为**真实数据**。
+  ///
+  /// 由文件扫描降级生成的「第 N 章」是合成目录（仅有已下载章节、标题为序号），
+  /// 为 false。调用方据此决定是否需要联网补齐真实目录。
+  final bool realVolumes;
+
   OfflineNovel({
     required this.novelId,
     required this.novelName,
     required this.coverUrl,
     required this.info,
     required this.volumes,
+    this.realVolumes = true,
   });
 }
 
@@ -91,6 +96,7 @@ class OfflineLibrary {
         'volumes': NovelCodec.volumesToJson(volumes),
       };
       await LocalCache.instance.write(_shelfDetailsKey, map);
+      _mem.remove(novelId); // 失效内存缓存，下次读取拿到最新数据。
       Log.info('OfflineLibrary', 'cached shelf detail $novelId');
     } catch (e) {
       Log.warning('OfflineLibrary', 'cache shelf detail failed: $e');
@@ -173,6 +179,9 @@ class OfflineLibrary {
     return '${n ~/ 1000}';
   }
 
+  /// 内存缓存：避免同一本书被反复读盘/扫描（打开详情页时高频调用）。
+  final Map<String, OfflineNovel?> _mem = {};
+
   /// 读取指定小说的离线数据。自动选择，不做特殊区分：
   /// 本地有的优先用本地，本地没有则由调用方联网。
   ///
@@ -182,6 +191,14 @@ class OfflineLibrary {
   /// 3. 旧下载无 manifest 时扫描已下载章节文件（伪目录，仅保证可读）；
   /// 4. 书架元数据兜底（书名/作者，无目录）。
   Future<OfflineNovel?> load(String novelId) async {
+    if (_mem.containsKey(novelId)) return _mem[novelId];
+    final result = await _loadUncached(novelId);
+    // 只缓存命中的结果（null 不缓存，以便下载/缓存后可重新解析）。
+    if (result != null) _mem[novelId] = result;
+    return result;
+  }
+
+  Future<OfflineNovel?> _loadUncached(String novelId) async {
     final manifest = await NovelDownloadManager.instance.readManifest(novelId);
     if (manifest == null) {
       return (await _loadShelfDetail(novelId)) ??
@@ -276,18 +293,20 @@ class OfflineLibrary {
   }
 
   /// 旧版本下载的降级读取：扫描 `chapter_<cid>.txt` 重建单卷目录。
+  ///
+  /// 使用**异步**文件 API，避免同步目录遍历阻塞 UI 线程（章节多时尤其明显）。
   Future<OfflineNovel?> _loadFromFiles(String novelId) async {
     try {
       final root = await NovelDownloadManager.instance.downloadRoot();
       final dir = Directory('$root${Platform.pathSeparator}$novelId');
-      if (!dir.existsSync()) return null;
+      if (!await dir.exists()) return null;
 
       final meta = await NovelDownloadManager.instance.readMeta(novelId);
       final name = (meta?['novelName'] as String?)?.trim();
       final cover = (meta?['coverUrl'] as String?) ?? '';
 
       final cids = <String>[];
-      for (final f in dir.listSync()) {
+      await for (final f in dir.list()) {
         if (f is File && f.path.endsWith('.txt')) {
           final base = f.path.split(Platform.pathSeparator).last;
           final cid = base.replaceFirst('chapter_', '').replaceAll('.txt', '');
@@ -332,6 +351,7 @@ class OfflineLibrary {
         volumes: [
           Volume(id: novelId, title: '已下载章节', chapters: chapters),
         ],
+        realVolumes: false,
       );
     } catch (e) {
       Log.warning('OfflineLibrary', 'file scan failed: $e');

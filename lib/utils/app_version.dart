@@ -5,24 +5,24 @@
 class AppVersion {
   AppVersion._();
 
-  /// 语义版本号，例如 `0.0.15`。
-  static const String version = '0.0.15';
+  /// 语义版本号，例如 `0.0.16`。
+  static const String version = '0.0.16';
 
-  /// 构建号，例如 `15`。
-  static const String buildNumber = '15';
+  /// 构建号，例如 `16`。
+  static const String buildNumber = '16';
 
   /// 鸿蒙移植版的修订序号（同一上游版本多次打包时递增）。
   static const int ohosReleaseRevision = 1;
 
-  /// 完整版本号，例如 `0.0.15+15`。
+  /// 完整版本号，例如 `0.0.16+16`。
   static const String full = '$version+$buildNumber';
 
-  /// 关于页展示用，例如 `0.0.15-ohos+15`。
+  /// 关于页展示用，例如 `0.0.16-ohos+16`。
   static const String display = '$version-ohos+$buildNumber';
 
-  /// GitHub Release 的标签，例如 `v0.0.15-ohos.1`。
+  /// GitHub Release 的标签，例如 `v0.0.16-ohos.1`。
   static const String releaseTag = 'v$version-ohos.$ohosReleaseRevision';
 
-  /// 用于 User-Agent 等，例如 `0.0.15+15`。
+  /// 用于 User-Agent 等，例如 `0.0.16+16`。
   static String get userAgent => 'Wild/$full';
 }

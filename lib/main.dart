@@ -27,6 +27,7 @@ import 'package:wild/pages/search_page.dart';
 import 'package:wild/pages/home/about_page.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:wild/methods.dart';
+import 'package:wild/services/local_cache.dart';
 import 'package:wild/services/webview_fetcher.dart';
 import 'package:wild/utils/app_info.dart';
 import 'package:wild/utils/log.dart';
@@ -63,6 +64,8 @@ Future<void> main() async {
     final root = await dataRoot();
     Log.init(root);
     Log.info('Main', 'app start os=${Platform.operatingSystem} root=$root');
+    // 校验缓存结构版本：格式变化时自动清空旧缓存，避免使用历史错误数据。
+    await LocalCache.instance.ensureSchema();
   } catch (e) {
     print("=== Log init failed: $e ===");
   }
